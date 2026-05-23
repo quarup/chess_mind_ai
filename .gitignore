@@ -1,0 +1,36 @@
+__pycache__/
+*.py[cod]
+*$py.class
+*.so
+.Python
+
+# uv / venvs
+.venv/
+venv/
+env/
+.uv/
+
+# Build
+build/
+dist/
+*.egg-info/
+.eggs/
+
+# Tests / coverage
+.pytest_cache/
+.ruff_cache/
+.coverage
+.coverage.*
+htmlcov/
+
+# IDE
+.vscode/
+.idea/
+*.swp
+
+# OS
+.DS_Store
+
+# Logs / PGNs from games
+*.log
+games/*.pgn

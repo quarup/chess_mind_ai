@@ -1,0 +1,39 @@
+[project]
+name = "chess-mind-ai"
+version = "0.1.0"
+description = "A prompt-configurable, conversational chess AI that emulates different playing styles and difficulty levels."
+readme = "README.md"
+requires-python = ">=3.11"
+authors = [{ name = "quarup" }]
+license = { text = "MIT" }
+dependencies = [
+    "chess>=1.11.0",
+    "anthropic>=0.40.0",
+]
+
+[project.scripts]
+chess-mind-ai = "chess_mind_ai.cli:main"
+
+[dependency-groups]
+dev = [
+    "pytest>=8.0.0",
+    "ruff>=0.6.0",
+]
+
+[build-system]
+requires = ["setuptools>=68", "wheel"]
+build-backend = "setuptools.build_meta"
+
+[tool.setuptools.packages.find]
+where = ["src"]
+
+[tool.ruff]
+line-length = 100
+target-version = "py311"
+
+[tool.ruff.lint]
+select = ["E", "F", "I", "W", "B", "UP"]
+
+[tool.pytest.ini_options]
+testpaths = ["tests"]
+addopts = "-ra"
