@@ -43,15 +43,16 @@ def select_move(
     board: chess.Board,
     target_elo: int,
     own_color: chess.Color,
-    style_weight: float = 10.0,
+    style_weight: float = 30.0,
     rng: random.Random | None = None,
 ) -> tuple[chess.Move | None, list[MoveBreakdown]]:
     """Return (best_move, full_breakdown).
 
     Style scores are roughly in [-10, 10] units; engine scores are centipawns.
-    The default style_weight of 10 means one "style unit" is worth ~10cp — large
-    enough to swing the choice among engine-equivalent moves, small enough that
-    the engine still dominates at high Elo.
+    The default style_weight of 30 means one "style unit" is worth ~30cp — large
+    enough that style can meaningfully override engine preferences within the
+    Elo blunder budget (e.g. 218cp at Elo 1500), while still being filtered out
+    at high Elo where the budget is tight (50cp at 2200).
     """
     candidates = engine.top_candidates(board)
     if not candidates:

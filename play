@@ -1,0 +1,20 @@
+#!/bin/bash
+# Wrapper around `chess-mind-ai play` that works around a uv + Python 3.14
+# bug on macOS: uv sets the UF_HIDDEN filesystem flag on `.pth` files it writes
+# into the venv, and Python silently skips hidden `.pth` files. Together they
+# break editable installs (and therefore the chess-mind-ai entry point) after
+# every `uv sync`. We just clear the flag and run.
+#
+# Usage: ./play --color white --elo 1500 --explain
+
+set -e
+cd "$(dirname "$0")"
+
+# Clear macOS hidden flag on any .pth files in the venv. Silent if no venv yet.
+chflags nohidden .venv/lib/python*/site-packages/*.pth 2>/dev/null || true
+
+# Make sure deps are in sync. Sync re-sets the hidden flag, so we clear again.
+uv sync --quiet
+chflags nohidden .venv/lib/python*/site-packages/*.pth 2>/dev/null || true
+
+exec .venv/bin/chess-mind-ai play "$@"

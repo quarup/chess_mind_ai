@@ -43,3 +43,10 @@ def blunder_budget_cp(elo: int) -> float:
 def noise_amplitude(elo: int) -> float:
     """Half-width of uniform noise added to total move score."""
     return _interpolate(_NOISE_TABLE, elo)
+
+
+def candidate_count(elo: int) -> int:
+    """How many engine candidates to score. More candidates at lower Elo so style
+    has room to surface moves Stockfish wouldn't normally rank highly (e.g. early
+    queen sorties for a queen-obsessed bot)."""
+    return max(5, min(40, int(50 - elo / 100)))

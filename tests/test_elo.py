@@ -1,4 +1,4 @@
-from chess_mind_ai.elo import blunder_budget_cp, noise_amplitude
+from chess_mind_ai.elo import blunder_budget_cp, candidate_count, noise_amplitude
 
 
 def test_budget_at_anchor_points():
@@ -29,3 +29,15 @@ def test_noise_decreases_with_elo():
 def test_noise_interpolates():
     # Midway between 1000 (noise=50) and 1400 (noise=30): expect 40
     assert noise_amplitude(1200) == 40
+
+
+def test_candidate_count_clamps_and_scales():
+    # Formula: int(50 - elo/100), clamped to [5, 40]
+    assert candidate_count(700) == 40   # clamped to ceiling of 40
+    assert candidate_count(1000) == 40
+    assert candidate_count(1100) == 39
+    assert candidate_count(1500) == 35
+    assert candidate_count(2000) == 30
+    assert candidate_count(2200) == 28
+    assert candidate_count(3000) == 20
+    assert candidate_count(5000) == 5   # clamped to floor of 5

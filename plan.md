@@ -123,6 +123,12 @@ style_score =
   + trajectory_score
 ```
 
+**Chosen default in M2:** `style_weight = 30`. With style components empirically
+in the [-10, +10] range, one "style unit" is worth ~30cp — enough that the
+queen-obsessed bot can justify a 60-90cp engine deficit to play a strong queen
+move, while still being filtered out at high Elo where the blunder budget
+tightens to 50cp.
+
 ### 4.1 Objective Engine Score
 
 Provided by Stockfish, usually in centipawns or mate scores.
@@ -204,6 +210,10 @@ Instead of converting the user prompt into a fixed JSON vector such as:
 ```
 
 generate scorer code directly.
+
+**Chosen LLM provider (M3):** the **Anthropic Python SDK** (`anthropic` on PyPI,
+pinned in `pyproject.toml`). Claude is the model used to generate scorer code
+from natural-language prompts.
 
 The LLM should output Python functions with this interface:
 
@@ -693,13 +703,35 @@ Add controlled randomness at lower ratings.
 Use Stockfish MultiPV to get top-N moves.
 
 ```text
-1. Ask Stockfish for top 8-20 candidate moves.
+1. Ask Stockfish for top candidate_count(elo) candidate moves.
 2. Apply each candidate move.
 3. Evaluate style action score.
 4. Evaluate style state score.
 5. Combine with engine score.
 6. Choose move.
 ```
+
+**Chosen scaling formula in M2** (`elo.candidate_count`):
+
+```python
+multipv = max(5, min(40, int(50 - elo / 100)))
+```
+
+| Elo  | Candidates |
+|-----:|-----------:|
+| 700  | 40 (clamp) |
+| 1000 | 40 (clamp) |
+| 1500 | 35         |
+| 2000 | 30         |
+| 2200 | 28         |
+| 3000 | 20         |
+| ≥4500 | 5 (clamp) |
+
+Reasoning: low-Elo bots want lots of candidates so style can promote moves the
+engine would never suggest (e.g. early queen sorties). At high Elo we shrink
+the candidate set — the Elo blunder budget would filter most of them out
+anyway, and a smaller MultiPV lets Stockfish search each line more deeply
+within the same time budget.
 
 This is simpler but only shallow.
 
@@ -793,7 +825,7 @@ Test:
 
 ## 12. MVP Milestones
 
-### Milestone 1: Basic Chess Engine Wrapper
+### Milestone 1: Basic Chess Engine Wrapper **[done]**
 
 - Install `python-chess`
 - Connect to Stockfish
@@ -802,12 +834,23 @@ Test:
 - Get MultiPV candidate moves
 - Play a complete legal game
 
-### Milestone 2: Static Style Scorer
+Shipped as `src/chess_mind_ai/engine.py`. Stockfish is invoked via
+`python-chess`'s UCI engine helper.
+
+### Milestone 2: Static Style Scorer **[done]**
 
 - Implement hand-written scorer functions
 - Score action/state/trajectory
 - Combine with engine score
 - Add Elo-based candidate filtering
+
+Shipped as `src/chess_mind_ai/{context,scorers/queen_obsessed,selector,elo,cli}.py`.
+The terminal CLI (`./play --color white --elo 1500 --explain`) drives a full
+game against the queen-obsessed bot. Tunable defaults that landed in this
+milestone:
+
+- `style_weight = 30` (see section 4)
+- `candidate_count(elo) = max(5, min(40, int(50 - elo / 100)))` (see section 10)
 
 ### Milestone 3: Prompt-to-Code Scorer
 
@@ -1016,27 +1059,27 @@ Only the internal implementation changes.
 
 ## 16. First Implementation Checklist
 
-Start here:
+M1 + M2 status:
 
-- [ ] Create Python project.
-- [ ] Install `python-chess`.
-- [ ] Install Stockfish.
-- [ ] Write simple board loop.
-- [ ] Ask Stockfish for top-N moves using MultiPV.
-- [ ] Implement basic `SafeChessContext`.
-- [ ] Implement hard-coded `action_score`, `state_score`, `trajectory_score`.
-- [ ] Combine engine score and style score.
-- [ ] Add target Elo candidate filtering.
-- [ ] Add generated scorer interface.
-- [ ] Add AST validator.
-- [ ] Add restricted builtins.
-- [ ] Add subprocess timeout.
-- [ ] Add score clamping.
-- [ ] Add fallback scorer.
-- [ ] Run games locally.
-- [ ] Add UCI wrapper.
-- [ ] Test with Cute Chess.
-- [ ] Iterate on scoring quality.
+- [x] Create Python project.
+- [x] Install `python-chess`.
+- [x] Install Stockfish.
+- [x] Write simple board loop.
+- [x] Ask Stockfish for top-N moves using MultiPV.
+- [x] Implement basic `SafeChessContext`.
+- [x] Implement hard-coded `action_score`, `state_score`, `trajectory_score`.
+- [x] Combine engine score and style score.
+- [x] Add target Elo candidate filtering.
+- [x] Run games locally.
+- [ ] Add generated scorer interface.       *(M3)*
+- [ ] Add AST validator.                    *(M3)*
+- [ ] Add restricted builtins.              *(M3)*
+- [ ] Add fallback scorer.                  *(M3)*
+- [ ] Add subprocess timeout.               *(M4)*
+- [ ] Add score clamping.                   *(M4)*
+- [ ] Add UCI wrapper.                      *(M5)*
+- [ ] Test with Cute Chess.                 *(M5)*
+- [ ] Iterate on scoring quality.           *(ongoing)*
 
 ---
 

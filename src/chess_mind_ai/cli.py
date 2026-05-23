@@ -5,6 +5,7 @@ import sys
 
 import chess
 
+from chess_mind_ai.elo import candidate_count
 from chess_mind_ai.engine import ChessEngine
 from chess_mind_ai.scorers import queen_obsessed
 from chess_mind_ai.selector import MoveBreakdown, select_move
@@ -28,8 +29,9 @@ def _build_parser() -> argparse.ArgumentParser:
                       help="Print per-candidate score breakdown each AI move.")
     play.add_argument("--stockfish", default="stockfish",
                       help="Path to the Stockfish binary (default: stockfish on PATH).")
-    play.add_argument("--multipv", type=int, default=10,
-                      help="How many candidate moves Stockfish returns (default: 10).")
+    play.add_argument("--multipv", type=int, default=None,
+                      help="Number of candidate moves Stockfish returns. "
+                           "Default scales with --elo (more candidates at lower Elo).")
     play.add_argument("--movetime", type=int, default=1000,
                       help="Stockfish thinking time per move, in ms (default: 1000).")
     return parser
@@ -53,9 +55,10 @@ def _play(args: argparse.Namespace) -> int:
             file=sys.stderr,
         )
 
+    multipv = args.multipv if args.multipv is not None else candidate_count(args.elo)
     engine = ChessEngine(
         path=args.stockfish,
-        multipv=args.multipv,
+        multipv=multipv,
         movetime_ms=args.movetime,
     )
     board = chess.Board()
