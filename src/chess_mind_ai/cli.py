@@ -8,7 +8,7 @@ import chess
 from chess_mind_ai.elo import candidate_count
 from chess_mind_ai.engine import ChessEngine
 from chess_mind_ai.scorers import queen_obsessed
-from chess_mind_ai.selector import MoveBreakdown, select_move
+from chess_mind_ai.selector import MoveBreakdown, StyleScorer, select_move
 
 
 def _build_parser() -> argparse.ArgumentParser:
@@ -24,7 +24,13 @@ def _build_parser() -> argparse.ArgumentParser:
     play.add_argument("--elo", type=int, default=1500,
                       help="Target rating for the AI (default: 1500).")
     play.add_argument("--prompt", type=str, default=None,
-                      help="Reserved for M3+; currently ignored (always queen-obsessed).")
+                      help="Natural-language style description. If given, an LLM "
+                           "generates the scorer code. Otherwise the hand-coded "
+                           "queen-obsessed scorer is used. Requires GEMINI_API_KEY.")
+    play.add_argument("--llm-model", type=str, default=None,
+                      help="Override the Gemini model (default: gemini-2.5-flash-lite).")
+    play.add_argument("--show-generated-code", action="store_true",
+                      help="Print the LLM-generated scorer source before the game starts.")
     play.add_argument("--explain", action="store_true",
                       help="Print per-candidate score breakdown each AI move.")
     play.add_argument("--stockfish", default="stockfish",
@@ -48,12 +54,7 @@ def _play(args: argparse.Namespace) -> int:
     human_color = chess.WHITE if args.color == "white" else chess.BLACK
     ai_color = not human_color
 
-    if args.prompt:
-        print(
-            "Note: --prompt is reserved for a later milestone. "
-            "Style is hardcoded to queen-obsessed for now.\n",
-            file=sys.stderr,
-        )
+    scorer, style_label = _build_scorer(args)
 
     multipv = args.multipv if args.multipv is not None else candidate_count(args.elo)
     engine = ChessEngine(
@@ -64,7 +65,7 @@ def _play(args: argparse.Namespace) -> int:
     board = chess.Board()
 
     print(f"You are {'white' if human_color == chess.WHITE else 'black'}. "
-          f"AI target Elo: {args.elo}. Style: queen-obsessed.")
+          f"AI target Elo: {args.elo}. Style: {style_label}.")
     print("Type SAN moves (e.g. 'e4', 'Nf3', 'O-O') or 'quit' to exit.\n")
 
     try:
@@ -77,7 +78,7 @@ def _play(args: argparse.Namespace) -> int:
                     return 0
             else:
                 move, breakdown = select_move(
-                    engine, queen_obsessed, board, args.elo, ai_color,
+                    engine, scorer, board, args.elo, ai_color,
                 )
                 if move is None:
                     print("AI returned no move; aborting.")
@@ -95,6 +96,36 @@ def _play(args: argparse.Namespace) -> int:
         return 0
     finally:
         engine.close()
+
+
+def _build_scorer(args: argparse.Namespace) -> tuple[StyleScorer, str]:
+    """Return (scorer, human-readable style label).
+
+    With no --prompt, returns the hand-coded queen-obsessed scorer. With a
+    prompt, asks Gemini for scorer code, validates it, and loads it. Any
+    failure (missing API key, validation error, etc.) raises — we deliberately
+    do not silently fall back, per the M3 'hard fail' decision.
+    """
+    if not args.prompt:
+        return queen_obsessed, "queen-obsessed (hand-coded)"
+
+    from chess_mind_ai.llm.gemini import DEFAULT_MODEL, GeminiProvider
+    from chess_mind_ai.llm.prompt import SYSTEM_PROMPT, extract_code
+    from chess_mind_ai.sandbox.loader import load_scorer
+
+    model = args.llm_model or DEFAULT_MODEL
+    provider = GeminiProvider(model=model)
+    print(f"Asking {model} for a scorer matching: {args.prompt!r}", file=sys.stderr)
+    raw = provider.generate(system=SYSTEM_PROMPT, user=args.prompt)
+    code = extract_code(raw)
+
+    if args.show_generated_code:
+        print("\n--- generated scorer ---\n", file=sys.stderr)
+        print(code, file=sys.stderr)
+        print("\n--- end generated scorer ---\n", file=sys.stderr)
+
+    scorer = load_scorer(code)
+    return scorer, f"prompt-driven ({model})"
 
 
 def _print_board(board: chess.Board) -> None:

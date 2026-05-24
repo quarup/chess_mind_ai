@@ -1077,12 +1077,12 @@ M1 + M2 status:
 - [x] Combine engine score and style score.
 - [x] Add target Elo candidate filtering.
 - [x] Run games locally.
-- [ ] Add generated scorer interface.       *(M3)*
-- [ ] Add AST validator.                    *(M3)*
-- [ ] Add restricted builtins.              *(M3)*
-- [ ] Add fallback scorer.                  *(M3)*
+- [x] Add generated scorer interface.       *(M3)*
+- [x] Add AST validator.                    *(M3)*
+- [x] Add restricted builtins.              *(M3)*
+- [x] Add score clamping.                   *(M3, promoted from M4)*
+- [ ] Add fallback scorer.                  *(deferred to M4 — current behavior is hard-fail on LLM error)*
 - [ ] Add subprocess timeout.               *(M4)*
-- [ ] Add score clamping.                   *(M4)*
 - [ ] Add UCI wrapper.                      *(M5)*
 - [ ] Test with Cute Chess.                 *(M5)*
 - [ ] Iterate on scoring quality.           *(ongoing)*

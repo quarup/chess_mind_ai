@@ -6,9 +6,9 @@ The long-term vision is for ChessMind AI to support voice and conversational int
 
 ## Current status
 
-**Milestones 1 + 2** (this version): a Python chess engine wrapper with a hand-coded *queen-obsessed* style scorer, Elo-based candidate filtering, and a tiny terminal CLI for playing against the bot.
+**Milestones 1 + 2 + 3**: a Python chess engine wrapper with a hand-coded *queen-obsessed* style scorer, Elo-based candidate filtering, a terminal CLI for playing against the bot, and **LLM-generated style scorers** via a provider-abstracted layer (default: Google Gemini 2.5 Flash-Lite, free tier).
 
-LLM-generated scorers, sandboxing, and the UCI engine wrapper land in later milestones.
+Subprocess sandboxing and the UCI engine wrapper land in later milestones.
 
 ## Requirements
 
@@ -20,7 +20,12 @@ LLM-generated scorers, sandboxing, and the UCI engine wrapper land in later mile
 
 ```bash
 uv sync
+# Hand-coded queen-obsessed bot (no API key needed):
 uv run chess-mind-ai play --color white --elo 1500 --explain
+
+# Prompt-driven bot (free Gemini API key from https://aistudio.google.com/apikey):
+export GEMINI_API_KEY=your-key-here
+uv run chess-mind-ai play --prompt "play very defensively, never trade queens"
 ```
 
 Type moves in [Standard Algebraic Notation](https://en.wikipedia.org/wiki/Algebraic_notation_(chess)) — e.g. `e4`, `Nf3`, `O-O`. Type `quit` to exit.
@@ -29,8 +34,14 @@ Type moves in [Standard Algebraic Notation](https://en.wikipedia.org/wiki/Algebr
 
 - `--color {white,black}` — which color you play (default: `white`)
 - `--elo N` — target rating for the AI (default: `1500`)
-- `--prompt "..."` — reserved for future LLM-generated style; currently ignored (always queen-obsessed)
+- `--prompt "..."` — natural-language style description; an LLM generates the scorer code (requires `GEMINI_API_KEY`). Without this flag the hand-coded queen-obsessed scorer is used.
+- `--llm-model NAME` — override the default Gemini model (`gemini-2.5-flash-lite`)
+- `--show-generated-code` — print the LLM-generated scorer source before the game starts
 - `--explain` — print per-candidate score breakdown each AI move
+
+### LLM providers
+
+The default provider is Google Gemini, on its free tier. Anthropic and OpenAI are planned drop-in alternatives behind the same `StyleScorerLLM` protocol — see [`docs/llm-providers.md`](docs/llm-providers.md) for pricing, free-tier terms, and the data-usage caveat.
 
 ## Tests
 
