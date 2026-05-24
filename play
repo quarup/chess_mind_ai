@@ -1,20 +1,37 @@
 #!/bin/bash
-# Wrapper around `chess-mind-ai play` that works around a uv + Python 3.14
-# bug on macOS: uv sets the UF_HIDDEN filesystem flag on `.pth` files it writes
-# into the venv, and Python silently skips hidden `.pth` files. Together they
-# break editable installs (and therefore the chess-mind-ai entry point) after
-# every `uv sync`. We just clear the flag and run.
+# Wrapper around the chess-mind-ai entry point that works around a uv +
+# Python 3.13/3.14 bug on macOS:
 #
-# Usage: ./play --color white --elo 1500 --explain
+#   1. uv writes editable-install `.pth` files into the venv with the
+#      UF_HIDDEN filesystem flag set.
+#   2. uv also tags those files with the `com.apple.provenance` xattr.
+#   3. Python 3.13+ silently skips `.pth` files marked with either, so the
+#      editable install never lands on sys.path and `chess-mind-ai` fails
+#      with `ModuleNotFoundError: No module named 'chess_mind_ai'`.
+#
+# We clear both, sync deps, clear again (sync re-sets them), and then call
+# the venv binary directly. We deliberately do NOT exec via `uv run` — that
+# would re-set the flag/xattr a third time before Python starts.
+#
+# Usage:
+#   ./play                                # same as `chess-mind-ai play`
+#   ./play play --elo 1500 --explain      # full subcommand form also works
+#   ./play --help
 
 set -e
 cd "$(dirname "$0")"
 
-# Clear macOS hidden flag on any .pth files in the venv. Silent if no venv yet.
-chflags nohidden .venv/lib/python*/site-packages/*.pth 2>/dev/null || true
+clean_pth() {
+    chflags nohidden .venv/lib/python*/site-packages/*.pth 2>/dev/null || true
+    xattr -d com.apple.provenance .venv/lib/python*/site-packages/*.pth 2>/dev/null || true
+}
 
-# Make sure deps are in sync. Sync re-sets the hidden flag, so we clear again.
+clean_pth
 uv sync --quiet
-chflags nohidden .venv/lib/python*/site-packages/*.pth 2>/dev/null || true
+clean_pth
 
-exec .venv/bin/chess-mind-ai play "$@"
+# Default to `play` if the user didn't pass a subcommand.
+if [[ $# -eq 0 || ( "$1" != "play" && "$1" != "--help" && "$1" != "-h" ) ]]; then
+    exec .venv/bin/chess-mind-ai play "$@"
+fi
+exec .venv/bin/chess-mind-ai "$@"
