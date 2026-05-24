@@ -211,9 +211,15 @@ Instead of converting the user prompt into a fixed JSON vector such as:
 
 generate scorer code directly.
 
-**Chosen LLM provider (M3):** the **Anthropic Python SDK** (`anthropic` on PyPI,
-pinned in `pyproject.toml`). Claude is the model used to generate scorer code
-from natural-language prompts.
+**LLM provider strategy (M3):** scorer generation goes through a thin
+`StyleScorerLLM` protocol so we can swap providers without touching the rest
+of the pipeline. Concrete adapters for **Google Gemini**, **Anthropic**, and
+**OpenAI** all conform to the same interface. The default is **Gemini 2.5
+Flash-Lite** on Google's free tier so the bot is playable without a credit
+card; Anthropic and OpenAI are drop-in alternatives selectable via config.
+
+See [`docs/llm-providers.md`](docs/llm-providers.md) for the full pricing
+comparison and the reasoning behind these choices.
 
 The LLM should output Python functions with this interface:
 
