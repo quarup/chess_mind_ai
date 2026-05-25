@@ -93,6 +93,87 @@ def test_bare_name_reference_to_banned_builtin_rejected():
         validate_generated_code(sneaky)
 
 
+@pytest.mark.parametrize("snippet,reason", [
+    (_VALID_SCORER.replace("score = 0.0", "with open('x'): score = 0.0"), "With"),
+    (_VALID_SCORER.replace("return score", "return (n := 1)"), "NamedExpr"),
+    (_VALID_SCORER.replace('"queen"', 'f"{ctx}"'), "JoinedStr"),
+    (_VALID_SCORER.replace("score = 0.0", "global score"), "Global"),
+    (_VALID_SCORER.replace("score = 0.0", "del move"), "Delete"),
+])
+def test_unknown_constructs_fail_closed(snippet: str, reason: str):
+    # The allowlist must reject anything not explicitly permitted, even
+    # constructs we never thought to enumerate in a denylist.
+    with pytest.raises(ScorerValidationError) as exc:
+        validate_generated_code(snippet)
+    assert reason in str(exc.value)
+
+
+def test_try_except_fails_closed():
+    snippet = textwrap.dedent("""
+        def action_score(ctx, move):
+            try:
+                return 1.0
+            except Exception:
+                return 0.0
+        def state_score(ctx):
+            return 0.0
+        def trajectory_score(ctx):
+            return 0.0
+    """)
+    with pytest.raises(ScorerValidationError, match="Try"):
+        validate_generated_code(snippet)
+
+
+def test_string_literal_with_dunder_rejected():
+    # Closes the `"{0.__class__.__globals__}".format(obj)` escape: dunders
+    # hidden inside a string literal have no ast.Attribute node to catch.
+    sneaky = _VALID_SCORER.replace(
+        "score = 0.0",
+        "score = len('{0.__class__.__init__.__globals__}')",
+    )
+    with pytest.raises(ScorerValidationError, match="dunder-escape guard"):
+        validate_generated_code(sneaky)
+
+
+def test_str_format_method_rejected():
+    sneaky = _VALID_SCORER.replace("score = 0.0", "score = len('x'.format())")
+    with pytest.raises(ScorerValidationError, match="format"):
+        validate_generated_code(sneaky)
+
+
+def test_private_attribute_access_rejected():
+    # A read-only board facade keeps its mutable board in `_board`; generated
+    # code must not be able to reach it (single leading underscore).
+    sneaky = _VALID_SCORER.replace("score = 0.0", "score = ctx._board")
+    with pytest.raises(ScorerValidationError, match="_board"):
+        validate_generated_code(sneaky)
+
+
+def test_richer_scorer_passes():
+    # Option-C scorers compose primitives with loops/comprehensions/subscripts;
+    # the allowlist must not be so tight that legitimate logic is rejected.
+    richer = textwrap.dedent("""
+        def action_score(ctx, move):
+            files = ["a", "b", "c"]
+            total = 0.0
+            for f in files:
+                if ctx.moving_piece_is(move, "queen"):
+                    total += 1.0
+            bonus = sum(1 for f in files if f in {"a", "b"})
+            weights = {"q": 2.0, "p": 0.5}
+            return total + weights["q"] + bonus
+
+        def state_score(ctx):
+            scores = [ctx.piece_mobility("queen"), ctx.piece_centralization("queen")]
+            return max(scores) if scores else 0.0
+
+        def trajectory_score(ctx):
+            n = ctx.count_own_moves_by_piece("queen")
+            return min(n, 5) * 0.3 if n > 0 else 0.0
+    """)
+    validate_generated_code(richer)  # no exception
+
+
 def test_decorators_rejected():
     snippet = textwrap.dedent("""
         def deco(f):
