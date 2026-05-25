@@ -288,6 +288,16 @@ def trajectory_score(ctx):
 
 ## 6. Safety Model for Generated Code
 
+> **Design note (2026-05):** the security model was revisited in depth — see
+> [`docs/scorer-sandbox-design.md`](docs/scorer-sandbox-design.md). Key
+> conclusions: (1) safety comes from the AST validator + OS sandbox, **not**
+> from how narrow the context object is — any live object is an escape gateway,
+> so a narrow `SafeChessContext` is no safer against escape than a `Board`;
+> (2) the validator is now an **allowlist** (fail closed) rather than a
+> denylist; (3) the real boundary must be the OS-level sandbox (M4). This
+> unblocks exposing a richer **read-only board facade** to scorers
+> (`src/chess_mind_ai/readonly_board.py`) — see section 7.
+
 Do **not** run generated code directly in the main app process.
 
 Use layered restrictions:
@@ -309,6 +319,14 @@ Fallback if anything fails
 ```
 
 ### 6.1 Static AST Validation
+
+**Implemented as an allowlist** (`src/chess_mind_ai/sandbox/validator.py`): only
+an enumerated set of AST node types is permitted and everything else fails
+closed, which is strictly safer than the denylist sketched below. It also blocks
+*any* leading-underscore attribute access (not just dunders, so a facade's
+private `_board` is unreachable) and rejects string literals containing `__`
+(closing the `"{0.__class__...}".format(obj)` escape). The denylist below is
+retained for historical context.
 
 Reject:
 
@@ -549,6 +567,17 @@ Recommended restrictions:
 ---
 
 ## 7. Safe Chess Context API
+
+> **Direction change (2026-05):** rather than the narrow, queen-shaped
+> `SafeChessContext` below (which capped expressiveness — e.g. "advance pawns
+> aggressively" was inexpressible), we are moving to a **read-only board
+> facade** that exposes broad chess *primitives* the scorer composes itself,
+> plus a small set of precomputed *scalar* features for expensive/fuzzy
+> concepts. Built in `src/chess_mind_ai/readonly_board.py` (`ReadOnlyBoard` +
+> the curated `CHESS` namespace); not yet wired into the live game. The set of
+> primitives and scalars was derived from a prompt brainstorm
+> ([`prompt_minds.md`](prompt_minds.md)) and the rationale is in
+> [`docs/scorer-sandbox-design.md`](docs/scorer-sandbox-design.md).
 
 The generated code should not receive raw engine objects, database handles, or file access.
 
@@ -868,11 +897,17 @@ milestone:
 
 ### Milestone 4: Sandboxed Scorer Worker
 
-- Move generated code execution into a separate process
+- Harden the AST validator to an allowlist (fail closed) **[done]**
+- Build the read-only board facade for richer scorers **[done — `readonly_board.py`, not yet wired in]**
+- Move generated code execution into a separate process (batch-per-move)
 - Add timeout
-- Add memory/CPU limits
-- Add output clamping
+- Add memory/CPU limits (`resource.setrlimit`, dropped FS/network)
+- Add output clamping **[done in M3]**
 - Add sample-position validation
+- Add neutral fallback scorer (pure engine play on any failure)
+
+See [`docs/scorer-sandbox-design.md`](docs/scorer-sandbox-design.md) §7–8 for
+the hardening checklist and migration plan.
 
 ### Milestone 5: UCI Engine Interface
 
@@ -1081,8 +1116,12 @@ M1 + M2 status:
 - [x] Add AST validator.                    *(M3)*
 - [x] Add restricted builtins.              *(M3)*
 - [x] Add score clamping.                   *(M3, promoted from M4)*
-- [ ] Add fallback scorer.                  *(deferred to M4 — current behavior is hard-fail on LLM error)*
-- [ ] Add subprocess timeout.               *(M4)*
+- [x] Harden validator to an allowlist.     *(M4 — fail closed; closes str.format escape)*
+- [x] Build read-only board facade.         *(M4 — `readonly_board.py`; not yet wired in)*
+- [ ] Add fallback scorer.                  *(M4 — current behavior is hard-fail on LLM error)*
+- [ ] Add subprocess timeout + rlimits.     *(M4)*
+- [ ] Add sample-position validation.       *(M4)*
+- [ ] Wire ReadOnlyBoard into prompt + selector. *(M4/M5 migration)*
 - [ ] Add UCI wrapper.                      *(M5)*
 - [ ] Test with Cute Chess.                 *(M5)*
 - [ ] Iterate on scoring quality.           *(ongoing)*
