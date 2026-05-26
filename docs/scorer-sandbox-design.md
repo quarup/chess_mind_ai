@@ -165,10 +165,18 @@ history (UCI) + own_color**; the worker rebuilds a `chess.Board`, wraps it in
 - [ ] Run the scorer in a **separate process** (batch-per-move: one worker call
       scores all candidates for a move and returns the breakdowns — avoids
       per-call process-spawn cost).
-- [ ] **Timeout** via process join + terminate.
-- [ ] **Resource limits**: `resource.setrlimit(RLIMIT_AS, RLIMIT_CPU)` in the
-      worker; drop network/FS access. Consider seccomp / a container
-      (gVisor/Firecracker) for production.
+- [ ] **Wall-clock timeout** via an external watchdog that kills the worker.
+      Note: this is *separate from* the CPU rlimit below — `RLIMIT_CPU` does not
+      fire on a blocking/sleeping loop, so we need a real wall-clock kill.
+- [ ] **Escape prevention (the primary defense):** `seccomp-bpf` with a tight
+      syscall allowlist (a pure scorer needs almost none) + an **empty network
+      namespace** + **no filesystem** (Landlock or a mount namespace). This —
+      not the AST validator — is what actually contains an escape. `bubblewrap`
+      / `nsjail`, or Anthropic's open-source `@anthropic-ai/sandbox-runtime`
+      (bubblewrap-based on Linux), can assemble most of this around the worker.
+- [ ] **Resource limits:** `resource.setrlimit(RLIMIT_AS, RLIMIT_CPU)` +
+      cgroup memory cap. These bound *resource exhaustion*; they do **not**
+      prevent escape (that's seccomp/namespaces above).
 - [x] Output clamping to `[-10, +10]`, non-finite → 0 (already in `loader.py`).
 - [ ] **Sample-position validation**: before using a generated scorer in a
       game, run it on canned positions (start, queen hanging, mate threat,
@@ -199,5 +207,60 @@ history (UCI) + own_color**; the worker rebuilds a `chess.Board`, wraps it in
   pawn-structure features) — driven by `prompt_minds.md`.
 - Whether to expose `Move`/`Piece` value objects (current choice) or flatten
   everything to ints/bools for an even smaller escape surface.
-- Container vs. `setrlimit`-only for the first M4 cut (leaning `setrlimit` +
-  process isolation for the MVP; container later).
+- Container vs. `setrlimit`-only for the first M4 cut (leaning seccomp +
+  namespaces + `setrlimit` around a worker process for the MVP — see §10 —
+  with gVisor/microVM as a later upgrade).
+
+## 10. Prior art — how others sandbox generated code (2026-05 research)
+
+Research into how others run untrusted/LLM-generated code (full digest in the
+session that produced this doc). The headline: **our chosen direction matches
+the consensus**, and we should sharpen M4 toward seccomp + namespaces rather
+than leaning on resource limits.
+
+### The load-bearing lesson: in-process Python sandboxing is broken by design
+- **pysandbox** was retired by its author (Victor Stinner) with exactly that
+  verdict — the trusted base is all of CPython, and introspection yields too
+  many escapes (a public challenge found escapes within a day).
+- **RestrictedPython** (Zope/Plone) explicitly states it "is not a sandbox" and
+  has had real escapes (e.g. stack-frame access, GHSA-wqc8-x2pr-7jqh).
+- ⇒ Strong, primary-grade confirmation that our **AST allowlist is hardening,
+  not the boundary**. Put the boundary in the OS.
+
+### The proportionate stack for a *pure function* like ours
+seccomp-bpf (tight syscall allowlist) + empty network namespace + no filesystem
+(Landlock / mount namespace) + setrlimit/cgroup CPU+memory caps + an external
+wall-clock watchdog. `bubblewrap`/`nsjail` or Anthropic's open-source
+`@anthropic-ai/sandbox-runtime` can assemble most of it with little code.
+Heavier options (gVisor, Firecracker microVMs, WASM/Wasmtime+WASI with all
+capabilities denied) are stronger but overkill for one float-returning function
+— reserve them for higher volume / multi-tenant later.
+
+### Reference architectures
+- OpenAI Code Interpreter → **gVisor**. Modal → gVisor. E2B → **Firecracker**
+  microVMs. Anthropic Claude Code → macOS Seatbelt / Linux **bubblewrap** +
+  domain-allowlisting network proxy. Open Interpreter's own docs: "no local
+  python sandbox can ever be completely secure" → isolate the process.
+
+### OpenClaw specifically — mostly *not* applicable to us
+OpenClaw (Peter Steinberger's self-hosted AI assistant / agent gateway, formerly
+Clawdbot → Moltbot, ~late-2025/early-2026) is an **autonomous agent** framework.
+Its security work — the **PRISM** runtime shield (prompt-injection scanning,
+DLP, lifecycle hooks), **exec approvals / human-in-the-loop**, and Docker
+isolation of agent tool calls — targets agent threats we don't have. Only the
+"isolate untrusted execution in a separate container/process" idea maps to us,
+and that's already our M4 plan.
+
+The widely-cited claim *"a sandbox alone can't stop data exfiltration / agent
+manipulation"* is **true for agents** (their control flow is steered by
+attacker-influenced text, and they leak through authorized channels) but **does
+not apply to our pure scorer**: no tool loop, no untrusted text steering
+behavior, no authorized exfiltration channel, no "instructions" to rewrite. For
+us the sandbox *is* essentially the whole game, because the function should have
+zero capabilities.
+
+> **Verification caveat:** OpenClaw is well-corroborated as a real project
+> (GitHub repo, Wikipedia, press), but its primary security sources
+> (`docs.openclaw.ai`, arXiv:2603.11853) returned HTTP 403 to automated fetch,
+> so PRISM specifics are from secondary snippets. Since none of it applies to
+> our threat model, re-verification is low priority.
