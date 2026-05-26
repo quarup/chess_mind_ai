@@ -315,6 +315,8 @@ Background on each mechanism is in §10; this is just *what runs where*.
 **Takeaway:** no single strong-isolation mechanism is available on both
 platforms out of the box. seccomp is Linux-only; Seatbelt is macOS-only; WASM is
 uniform but not installed and heavy to integrate (and fights option C — 11.6).
+For how these mechanisms relate conceptually (visibility vs syscall surface),
+see §12.4.
 
 ### 11.4 Decision: layered worker with a pluggable OS-isolation backend
 
@@ -382,3 +384,88 @@ still runs as native code on the host kernel, reachable through the allowed
 syscalls. For our threat model — buggy or escape-attempting *pure* code,
 single-user, low volume — this is proportionate. Upgrade paths if the threat
 model grows: add a seccomp binding, or move to gVisor, Firecracker, or WASM.
+
+## 12. Runtime architecture (as built)
+
+### 12.1 Process topology & trust boundary
+
+```
+┌─ MAIN PROCESS (trusted) ─────────────────────────────────┐
+│  CLI · Stockfish wrapper (engine.py) · LLM call (Gemini)  │
+│  selector: Elo budget + style_weight + noise + pick move  │
+│  AST validation · hand-coded queen_obsessed scorer        │
+│  score_candidates_sandboxed()  ── spawns ──┐              │
+└────────────────────────────────────────────┼────────────┘
+              JSON request (stdin) │          │  JSON response (stdout)
+              source, root FEN,    ▼          │  [(action,state,traj), …]
+              UCI history, own_color,         │  or {"ok": false}
+              candidates, mem/cpu limits      │
+┌─ WORKER PROCESS (untrusted) ─────────────── ▼ ───────────┐
+│  [optional prefix: `unshare …` (Linux) / Seatbelt (mac)]  │
+│  _apply_resource_limits()  → setrlimit AS / CPU / FSIZE   │
+│  load_scorer(source) → AST allowlist + restricted builtins│
+│  rebuild board from FEN+history → SafeChessContext        │
+│  run generated action/state/trajectory(ctx, move)  ◄─ the │
+│  return triples                         ONLY untrusted    │
+└─────────────────────────────────────────  code ──────────┘
+```
+
+The **only untrusted code is the LLM-generated scorer source**; everything else
+runs in the trusted main process. The worker is a freshly `exec`'d interpreter
+(`python -m chess_mind_ai.sandbox.worker`) — **not** a `fork` — with a scrubbed
+environment (no API keys), its own process group (`start_new_session=True`, so
+the parent can kill the whole group on timeout), communicating only over pipes.
+Generated code is never loaded or `exec`'d in the main process. It is spawned
+fresh per move (batch-per-move: all candidates scored in one worker call); a
+persistent worker pool is a later optimization.
+
+### 12.2 Data flow of one prompt-driven AI move
+
+1. **Main**: `engine.top_candidates(board)` → Stockfish returns top-N moves +
+   centipawn scores.
+2. **Main**: `select_move_sandboxed` validates the source (fail-fast),
+   serializes the request, and spawns the worker.
+3. **Worker**: applies `setrlimit` to itself → `load_scorer` (validator +
+   restricted builtins + output clamp) → rebuilds the board → runs the
+   generated functions per candidate → returns triples (**numbers only**).
+4. **Main**: receives triples, or `None` on any failure → neutral all-zero
+   style; then `cp + style_weight·style + noise`, Elo-budget filter, pick max.
+
+Untrusted code only ever produces a style number per candidate; engine
+evaluation, move legality, and the final selection are all trusted.
+
+### 12.3 Defense layers around the untrusted code
+
+1. AST allowlist validator (parent fail-fast **and** worker via `load_scorer`).
+2. Restricted builtins + output clamping (worker).
+3. Separate process (memory/state isolation from the parent).
+4. `setrlimit` — `RLIMIT_AS` / `RLIMIT_CPU` / `RLIMIT_FSIZE=0` (worker).
+5. Wall-clock timeout + process-group kill (parent).
+6. OS-isolation backend wrapping the worker: `unshare` namespaces (Linux, now);
+   seccomp + macOS Seatbelt (TODO).
+
+### 12.4 How the OS backends relate: unshare vs seccomp vs Seatbelt
+
+These act on **different axes** and *compose*; they are not interchangeable:
+
+- **`unshare` (Linux namespaces)** changes **what the process can SEE / what
+  resources exist** for it. `--net` gives an empty network namespace (only a
+  down `lo`) — the process *can still call* `socket()`, there's just no network
+  to reach; `--mount` isolates the mount view; `--user --map-root-user` confines
+  "root" to the namespace and is what makes the others creatable unprivileged.
+  This is **resource visibility**, not syscall restriction.
+- **`seccomp` (Linux)** restricts **which syscalls may be invoked at all**,
+  shrinking the reachable kernel attack surface (forbid `socket`, `openat`,
+  `execve`, `ptrace`, … and allow only the handful a pure scorer needs). It is
+  **orthogonal** to namespaces: `unshare` removes the *things*, seccomp removes
+  the *operations*. Stacked, you get "no network exists **and** `socket()` is
+  uncallable **and** the syscall surface is minimal."
+- **Seatbelt (macOS)** is a **single policy mechanism covering both axes at
+  once**, because macOS has neither namespaces nor seccomp. One SBPL profile
+  (via `sandbox-exec` / `sandbox_init`) denies file/network/exec operations.
+
+So the OS layer is: **Linux = `unshare` + seccomp stacked** (we have `unshare`;
+seccomp is TODO); **macOS = a single Seatbelt profile** (TODO). The portable
+core (separate process + `setrlimit` + wall-clock timeout) underlies all of
+them, and if no backend is available the worker still runs under the portable
+core + AST layer ("reduced isolation").
