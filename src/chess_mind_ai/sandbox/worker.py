@@ -80,7 +80,7 @@ def _apply_resource_limits(mem_mb: int, cpu_s: int) -> None:
 def _score_request(req: dict) -> dict:
     # Imported here so an import failure is reported as a worker error, not a
     # crash before we can respond.
-    from chess_mind_ai.context import SafeChessContext
+    from chess_mind_ai.readonly_board import ReadOnlyBoard
     from chess_mind_ai.sandbox.loader import load_scorer
 
     scorer = load_scorer(req["source"])
@@ -93,10 +93,10 @@ def _score_request(req: dict) -> dict:
     triples: list[list[float]] = []
     for uci in req["candidates"]:
         move = chess.Move.from_uci(uci)
-        ctx_before = SafeChessContext(board, own_color)
-        after = board.copy()
-        after.push(move)
-        ctx_after = SafeChessContext(after, own_color)
+        # action_score sees the position BEFORE the move; state/trajectory see
+        # the position AFTER it (peek applies the move to a read-only copy).
+        ctx_before = ReadOnlyBoard(board, own_color)
+        ctx_after = ctx_before.peek(move)
         action = scorer.action_score(ctx_before, move)
         state = scorer.state_score(ctx_after)
         trajectory = scorer.trajectory_score(ctx_after)

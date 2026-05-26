@@ -197,6 +197,19 @@ class ReadOnlyBoard:
     def moving_piece_type(self, move: chess.Move) -> int | None:
         return self._board.piece_type_at(move.from_square)
 
+    def peek(self, move: chess.Move) -> ReadOnlyBoard:
+        """Read-only view of the position AFTER `move` is played.
+
+        Applies `move` to a private copy and returns a fresh `ReadOnlyBoard`
+        with the same `own_color`. The current board is never mutated, so
+        generated `action_score(ctx, move)` code can inspect the resulting
+        position (e.g. whether a piece is left hanging, or what a move
+        captures) without ever being handed a mutable board.
+        """
+        after = self._board.copy()
+        after.push(move)
+        return ReadOnlyBoard(after, self._own_color)
+
     # --- history (for trajectory scoring) -------------------------------
 
     def move_history(self) -> tuple[chess.Move, ...]:

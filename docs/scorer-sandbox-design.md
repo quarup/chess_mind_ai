@@ -196,19 +196,26 @@ history (UCI) + own_color**; the worker rebuilds a `chess.Board`, wraps it in
 
 1. **Done:** allowlist validator; `ReadOnlyBoard` + `CHESS` namespace + tests.
 2. **Done:** M4 separate-process worker (`sandbox/worker.py`) + sandboxed
-   selector + neutral fallback. The CLI now runs LLM-generated source in the
-   sandbox. **Note:** the worker currently reconstructs **`SafeChessContext`**
-   (the context the current system prompt teaches), *not* `ReadOnlyBoard` — so
-   option C is built but not yet the live contract. Switching the worker to
-   `ReadOnlyBoard` is steps 3–5 below.
-3. **Next:** update the system prompt (`llm/prompt.py`) to teach the
-   `ReadOnlyBoard` API + `chess.*` helpers instead of the old context.
-4. Swap the worker's context from `SafeChessContext` to `ReadOnlyBoard`
-   (inject `scorer_globals()` into the loader namespace); port (or re-derive)
-   the queen-obsessed scorer against the new API for parity testing.
-5. Add sample-position validation (run a new scorer on canned positions before
-   first use; regenerate or fall back if it misbehaves).
-6. Once at parity, retire `SafeChessContext`.
+   selector + neutral fallback. The CLI runs LLM-generated source in the
+   sandbox.
+3. **Done:** the system prompt (`llm/prompt.py`) now teaches the `ReadOnlyBoard`
+   API + the curated `chess.*` namespace + the `piece(name)` helper, with a
+   worked queen-obsessed example.
+4. **Done:** the worker reconstructs `ReadOnlyBoard` (not `SafeChessContext`):
+   `_score_request` builds the before-position view and uses `ctx.peek(move)`
+   for the after-position; `load_scorer` injects `scorer_globals()` (`chess` +
+   `piece`) into the exec namespace. A `peek(move)` method was added to
+   `ReadOnlyBoard` so `action_score` can inspect the resulting position (e.g.
+   hang/trade checks) without a mutable board. The queen-obsessed scorer is
+   ported to the new API as an inline parity reference in `tests/test_worker.py`
+   (sandboxed port picks the same move as the in-process `SafeChessContext`
+   scorer it mirrors).
+5. **Next:** add sample-position validation (run a new scorer on canned
+   positions before first use; regenerate or fall back if it misbehaves).
+6. Once fully at parity, retire `SafeChessContext`. **Not yet done:**
+   `SafeChessContext` still backs the in-process default `./play` path
+   (`select_move` + the hand-coded `queen_obsessed` scorer). Retiring it needs
+   an explicit decision (moving that path onto `ReadOnlyBoard` too).
 
 ## 9. Open questions for next session
 
@@ -404,7 +411,7 @@ model grows: add a seccomp binding, or move to gVisor, Firecracker, or WASM.
 │  [optional prefix: `unshare …` (Linux) / Seatbelt (mac)]  │
 │  _apply_resource_limits()  → setrlimit AS / CPU / FSIZE   │
 │  load_scorer(source) → AST allowlist + restricted builtins│
-│  rebuild board from FEN+history → SafeChessContext        │
+│  rebuild board from FEN+history → ReadOnlyBoard           │
 │  run generated action/state/trajectory(ctx, move)  ◄─ the │
 │  return triples                         ONLY untrusted    │
 └─────────────────────────────────────────  code ──────────┘

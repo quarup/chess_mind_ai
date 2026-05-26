@@ -19,15 +19,61 @@ from chess_mind_ai.sandbox.worker import (
     _isolation_prefix,
     score_candidates_sandboxed,
 )
-from chess_mind_ai.selector import select_move_sandboxed
+from chess_mind_ai.scorers import queen_obsessed
+from chess_mind_ai.selector import select_move, select_move_sandboxed
 
 _QUEEN_BONUS = textwrap.dedent("""
     def action_score(ctx, move):
-        return 1.0 if ctx.moving_piece_is(move, "queen") else 0.0
+        return 1.0 if ctx.moving_piece_type(move) == piece("queen") else 0.0
     def state_score(ctx):
         return 0.0
     def trajectory_score(ctx):
         return 0.0
+""")
+
+# ReadOnlyBoard port of the hand-coded queen_obsessed scorer (design-doc §8
+# step 4). Kept inline as a parity reference: run through the sandbox it should
+# pick the same move as the in-process SafeChessContext scorer it mirrors.
+_QUEEN_OBSESSED_RO = textwrap.dedent("""
+    def action_score(ctx, move):
+        score = 0.0
+        own = ctx.own_color
+        after = ctx.peek(move)
+        if ctx.moving_piece_type(move) == piece("queen"):
+            score += 1.2
+            if ctx.is_capture(move):
+                score += 0.9
+            if ctx.gives_check(move):
+                score += 0.8
+            enemy_king = ctx.king(not own)
+            if enemy_king is not None and chess.square_distance(move.to_square, enemy_king) <= 2:
+                score += 0.5
+            if after.is_attacked_by(not own, move.to_square):
+                score -= 2.5
+        for sq in after.squares_with(piece("queen"), own):
+            if after.is_attacked_by(not own, sq) and not after.attackers(own, sq):
+                score -= 2.0
+        return score
+
+    def state_score(ctx):
+        own = ctx.own_color
+        score = 0.0
+        for sq in ctx.squares_with(piece("queen"), own):
+            for target in ctx.attacks(sq):
+                if ctx.color_at(target) != own:
+                    score += 0.1
+                if ctx.color_at(target) == (not own):
+                    score += 0.2
+            if ctx.is_attacked_by(not own, sq):
+                score -= 1.2
+        return score
+
+    def trajectory_score(ctx):
+        own = ctx.own_color
+        score = 0.3 * min(ctx.own_move_count(piece("queen")), 5)
+        if not ctx.has_piece(piece("queen"), own):
+            score -= 5.0
+        return score
 """)
 
 _CONST = textwrap.dedent("""
@@ -69,7 +115,7 @@ def test_history_is_reconstructed_for_trajectory():
         def state_score(ctx):
             return 0.0
         def trajectory_score(ctx):
-            return float(ctx.count_own_moves_by_piece("queen"))
+            return float(ctx.own_move_count(piece("queen")))
     """)
     [(_, _, traj)] = score_candidates_sandboxed(
         src, board, chess.WHITE, [chess.Move.from_uci("h5f7")]
@@ -187,3 +233,32 @@ def test_sandboxed_selector_falls_back_to_neutral_on_bad_source():
     )
     assert chosen == _BXD4
     assert all(b.style == 0.0 for b in breakdown)
+
+
+def test_readonly_port_at_parity_with_inprocess_queen_obsessed():
+    """The ReadOnlyBoard port (sandboxed) picks the same move as the hand-coded
+    SafeChessContext queen_obsessed (in-process) — the design-doc §8 step-4
+    parity check before SafeChessContext can be retired."""
+    board = chess.Board(_TWIN_CAPTURE_FEN)
+    cands = [Candidate(_BXD4, 100), Candidate(_QXD4, 85)]
+
+    in_process, _ = select_move(
+        FakeEngine(cands), queen_obsessed, board, target_elo=1500,
+        own_color=chess.WHITE, rng=random.Random(0),
+    )
+    sandboxed, _ = select_move_sandboxed(
+        FakeEngine(cands), _QUEEN_OBSESSED_RO, board, target_elo=1500,
+        own_color=chess.WHITE, rng=random.Random(0),
+    )
+    assert in_process == sandboxed == _QXD4
+
+
+def test_readonly_port_passes_validator_and_loads():
+    """The inline port is valid under the AST allowlist and loads with the
+    injected `chess` / `piece` globals available."""
+    from chess_mind_ai.sandbox.loader import load_scorer
+
+    scorer = load_scorer(_QUEEN_OBSESSED_RO)
+    assert callable(scorer.action_score)
+    assert callable(scorer.state_score)
+    assert callable(scorer.trajectory_score)

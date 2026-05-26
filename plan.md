@@ -898,7 +898,7 @@ milestone:
 ### Milestone 4: Sandboxed Scorer Worker
 
 - Harden the AST validator to an allowlist (fail closed) **[done]**
-- Build the read-only board facade for richer scorers **[done — `readonly_board.py`, not yet wired in]**
+- Build the read-only board facade for richer scorers **[done — `readonly_board.py`, now wired into prompt + worker]**
 - Move generated code execution into a separate process (batch-per-move) **[done — `sandbox/worker.py`]**
 - Add wall-clock timeout **[done]**
 - Add memory/CPU limits (`resource.setrlimit`) **[done]**; network/mount isolation via `unshare` on Linux **[done]**; seccomp + macOS Seatbelt **[todo]**
@@ -1118,12 +1118,12 @@ M1 + M2 status:
 - [x] Add restricted builtins.              *(M3)*
 - [x] Add score clamping.                   *(M3, promoted from M4)*
 - [x] Harden validator to an allowlist.     *(M4 — fail closed; closes str.format escape)*
-- [x] Build read-only board facade.         *(M4 — `readonly_board.py`; not yet wired in)*
+- [x] Build read-only board facade.         *(M4 — `readonly_board.py`; wired into prompt + worker)*
 - [x] Add fallback scorer.                  *(M4 — neutral pure-engine fallback in `select_move_sandboxed`)*
 - [x] Add subprocess worker + timeout + rlimits. *(M4 — `sandbox/worker.py`; Linux unshare backend)*
 - [ ] Add seccomp + macOS Seatbelt backends. *(M4 — escape hardening; seccomp binding TODO)*
 - [ ] Add sample-position validation.       *(M4)*
-- [ ] Wire ReadOnlyBoard into prompt + worker. *(M4/M5 migration — worker currently uses SafeChessContext)*
+- [x] Wire ReadOnlyBoard into prompt + worker. *(M4 migration — worker now uses ReadOnlyBoard; SafeChessContext kept for the in-process default `./play` path pending retirement)*
 - [ ] Add UCI wrapper.                      *(M5)*
 - [ ] Test with Cute Chess.                 *(M5)*
 - [ ] Iterate on scoring quality.           *(ongoing)*

@@ -13,6 +13,7 @@ from collections.abc import Callable
 from dataclasses import dataclass
 from typing import Any
 
+from chess_mind_ai.readonly_board import scorer_globals
 from chess_mind_ai.sandbox.validator import (
     REQUIRED_FUNCTION_NAMES,
     ScorerValidationError,
@@ -79,7 +80,10 @@ def load_scorer(source: str) -> GeneratedScorer:
     tree = validate_generated_code(source)
     code = compile(tree, filename="<generated_scorer>", mode="exec")
 
-    namespace: dict[str, Any] = {"__builtins__": _SAFE_BUILTINS}
+    # Inject the curated `chess` namespace + `piece` helper alongside the safe
+    # builtins so generated scorers can call chess.* and piece("queen"). The
+    # ReadOnlyBoard itself is passed per-call as the `ctx` argument, not here.
+    namespace: dict[str, Any] = {"__builtins__": _SAFE_BUILTINS, **scorer_globals()}
     exec(code, namespace, namespace)  # noqa: S102 — restricted by AST + builtins
 
     callables: dict[str, Callable[..., Any]] = {}

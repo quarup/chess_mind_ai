@@ -94,6 +94,28 @@ def test_own_move_count_counts_only_own_side():
     assert rb_black.own_move_count(chess.QUEEN) == 0
 
 
+def test_peek_returns_after_position_without_mutating():
+    rb = ReadOnlyBoard(_board("e4", "e5"), chess.WHITE)
+    qh5 = chess.Move.from_uci("d1h5")
+    after = rb.peek(qh5)
+    # The returned view reflects the position after the move...
+    assert after.piece_type_at(chess.H5) == chess.QUEEN
+    assert after.piece_type_at(chess.D1) is None
+    assert after.turn is chess.BLACK
+    assert after.own_color is chess.WHITE  # own_color is preserved
+    # ...and peeking did not mutate the original.
+    assert rb.piece_type_at(chess.D1) == chess.QUEEN
+    assert rb.piece_type_at(chess.H5) is None
+    assert rb.turn is chess.WHITE
+
+
+def test_peek_after_position_carries_history_for_own_move_count():
+    rb = ReadOnlyBoard(_board("e4", "e5"), chess.WHITE)
+    after = rb.peek(chess.Move.from_uci("d1h5"))  # white's first queen move
+    assert after.own_move_count(chess.QUEEN) == 1
+    assert after.move_history()[-1] == chess.Move.from_uci("d1h5")
+
+
 def test_move_history():
     rb = ReadOnlyBoard(_board("e4", "e5"), chess.WHITE)
     assert rb.move_history() == (
