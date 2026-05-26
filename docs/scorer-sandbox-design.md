@@ -207,9 +207,8 @@ history (UCI) + own_color**; the worker rebuilds a `chess.Board`, wraps it in
   pawn-structure features) — driven by `prompt_minds.md`.
 - Whether to expose `Move`/`Piece` value objects (current choice) or flatten
   everything to ints/bools for an even smaller escape surface.
-- Container vs. `setrlimit`-only for the first M4 cut (leaning seccomp +
-  namespaces + `setrlimit` around a worker process for the MVP — see §10 —
-  with gVisor/microVM as a later upgrade).
+- ~~Container vs. `setrlimit`-only for the first M4 cut~~ — **decided, see §11**:
+  a layered worker (portable core + pluggable OS backend).
 
 ## 10. Prior art — how others sandbox generated code (2026-05 research)
 
@@ -264,3 +263,113 @@ zero capabilities.
 > (`docs.openclaw.ai`, arXiv:2603.11853) returned HTTP 403 to automated fetch,
 > so PRISM specifics are from secondary snippets. Since none of it applies to
 > our threat model, re-verification is low priority.
+
+## 11. Sandbox runtime & platform plan (M4 — decided 2026-05)
+
+### 11.1 Requirement
+
+The sandbox must run in **two** environments:
+
+- **macOS** — the local dev machine ("at least works on my Mac").
+- **The Claude Code cloud container** (referred to in conversation as "the
+  Anthropic VM") — a Linux container, so the sandbox can be exercised and
+  validated during web/cloud sessions.
+
+So cross-platform (macOS + Linux) is a hard requirement; Windows is not a
+target.
+
+### 11.2 What the cloud container actually allows (probed 2026-05)
+
+- Linux 6.18 x86_64, running inside a container (cgroups present).
+- **Unprivileged user + network namespaces work** — `unshare --user
+  --map-root-user --net` succeeds → we can drop network and isolate FS/PID
+  without root.
+- `unshare` is present; **`bwrap` / `firejail` / `nsjail` / `wasmtime` are NOT
+  installed**, and we don't assume the ability to install system packages.
+- `resource.setrlimit(RLIMIT_AS, RLIMIT_CPU)` is available (also on macOS).
+- No `seccomp` Python binding (adding one needs a compiler + network).
+
+### 11.3 Sandbox-mechanism availability by platform
+
+Background on each mechanism is in §10; this is just *what runs where*.
+
+| Mechanism | macOS | Cloud container (Linux) | Notes |
+|---|---|---|---|
+| separate process + `setrlimit` | ✅ | ✅ | portable, no root |
+| wall-clock watchdog kill | ✅ | ✅ | needed *separately* from `RLIMIT_CPU` |
+| user/net/mount/pid namespaces (`unshare`) | ❌ | ✅ unprivileged | Linux-only |
+| seccomp-bpf syscall allowlist | ❌ | ⚠️ no binding installed | Linux-only |
+| Seatbelt (`sandbox-exec`) | ✅ (deprecated API) | ❌ | macOS-only |
+| bubblewrap / nsjail / firejail | ❌ | ❌ not installed | — |
+| WASM (Wasmtime / Pyodide) | needs install | not installed | only *uniform* option |
+
+**Takeaway:** no single strong-isolation mechanism is available on both
+platforms out of the box. seccomp is Linux-only; Seatbelt is macOS-only; WASM is
+uniform but not installed and heavy to integrate (and fights option C — 11.6).
+
+### 11.4 Decision: layered worker with a pluggable OS-isolation backend
+
+**Portable core** (identical on macOS + cloud container; no deps, no root):
+
+- run the scorer in a **separate worker process** (batch-per-move);
+- `setrlimit`: `RLIMIT_AS` (address space / memory), `RLIMIT_CPU` (CPU
+  seconds), `RLIMIT_FSIZE` (cap/zero file writes), and best-effort
+  `RLIMIT_NPROC`;
+- an external **wall-clock watchdog** that kills the worker — this is separate
+  from `RLIMIT_CPU`, which does **not** fire on a blocking/sleeping loop;
+- scrub the environment, set cwd to a temp dir, close inherited fds;
+- existing layers carry over: AST allowlist validator, restricted builtins,
+  output clamp, and a **neutral fallback** (never hard-fail the game).
+
+Because generated code can't `import` anything (AST layer), it already cannot
+open sockets or files at the Python level; the OS layer below is
+defense-in-depth for the case where that layer is bypassed.
+
+**Pluggable OS backend, selected at runtime:**
+
+- **Linux** (cloud container + production): launch the worker under `unshare
+  --user --map-root-user --net --mount --pid` to drop network and isolate
+  FS/PID. Confirmed runnable in the cloud container.
+- **macOS**: a Seatbelt profile via `sandbox-exec` denying filesystem + network
+  (deprecated API, still functional).
+- **Fallback**: if no backend is available, run the portable core + AST layer
+  and log **"reduced isolation"** — degrade, never crash.
+
+**Implementation gotchas to remember:**
+
+- Results must return to the parent over an **OS pipe**, not a regular file —
+  `RLIMIT_FSIZE` caps file writes but does not affect pipes, so IPC keeps
+  working. (Avoid `multiprocessing.Queue` if it might spill to a temp file;
+  prefer an explicit `os.pipe`.)
+- `RLIMIT_NPROC` is **per-user**, not per-process, so lowering it can affect
+  sibling processes sharing the uid in a container — treat it as best-effort;
+  prefer the PID namespace / seccomp to block `fork`/`execve`.
+
+### 11.5 Validation
+
+Tests run the worker in both environments. The **Linux namespace backend is
+exercisable in the cloud container**, so web/cloud sessions validate the real
+Linux-isolation path every run; the macOS Seatbelt path is validated locally.
+Target test assertions: the worker (a) returns correct scores, (b) is killed on
+a wall-clock timeout, (c) is killed / errors on a memory blowup, (d) denies a
+deliberate escape attempt when a backend is active, (e) falls back neutrally on
+any failure.
+
+### 11.6 Why not WASM now
+
+WASM (Wasmtime + Pyodide / CPython-WASI) is the only mechanism identical across
+macOS / Linux / Windows and capability-deny-by-default (§10). Deferred because:
+it isn't installed here; it's heavy to integrate (Pyodide image size, startup
+cost); and it fights option C — to keep the live `ReadOnlyBoard` (python-chess)
+inside the module we'd have to ship python-chess into WASM or precompute board
+facts into plain data, restructuring the context boundary. Documented as the
+upgrade if we ever need one uniform, strong, write-once sandbox.
+
+### 11.7 Caveats
+
+The no-root, no-install options (setrlimit, namespaces, Seatbelt) are **not
+kernel-bug-proof** the way gVisor / Firecracker microVMs are: untrusted code
+still runs as native code on the host kernel, reachable through the allowed
+syscalls. For our threat model — buggy or escape-attempting *pure* code,
+single-user, low volume — this is proportionate. Upgrade paths if the threat
+model grows: add a seccomp binding, or move to gVisor, Firecracker, or WASM.

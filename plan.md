@@ -907,7 +907,8 @@ milestone:
 - Add neutral fallback scorer (pure engine play on any failure)
 
 See [`docs/scorer-sandbox-design.md`](docs/scorer-sandbox-design.md) §7–8 for
-the hardening checklist and migration plan.
+the hardening checklist and migration plan, and §11 for the cross-platform
+runtime plan (layered worker: portable core + pluggable macOS/Linux backend).
 
 ### Milestone 5: UCI Engine Interface
 
