@@ -7,7 +7,7 @@ from dataclasses import dataclass
 import chess
 
 from chess_mind_ai.engine import Candidate
-from chess_mind_ai.scorers import queen_obsessed
+from chess_mind_ai.scorers import neutral, queen_obsessed
 from chess_mind_ai.selector import select_move
 
 
@@ -60,6 +60,18 @@ def test_selector_respects_high_elo_budget():
     assert chosen == _BXD4
     queen_bd = next(b for b in breakdown if b.move == _QXD4)
     assert not queen_bd.allowed
+
+
+def test_neutral_scorer_plays_pure_engine():
+    """The neutral fallback scorer adds zero style, so the highest-cp move wins."""
+    board = chess.Board(_TWIN_CAPTURE_FEN)
+    engine = FakeEngine([Candidate(_BXD4, 100), Candidate(_QXD4, 85)])
+    chosen, breakdown = select_move(
+        engine, neutral, board, target_elo=1500,
+        own_color=chess.WHITE, rng=random.Random(0),
+    )
+    assert chosen == _BXD4
+    assert all(b.style == 0.0 for b in breakdown)
 
 
 def test_selector_returns_none_when_no_candidates():

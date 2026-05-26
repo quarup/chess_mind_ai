@@ -115,28 +115,49 @@ def _build_scorer(
 
     Exactly one of (scorer, source) is set. With no --prompt we use the trusted
     hand-coded queen-obsessed scorer in-process. With a prompt, we ask Gemini for
-    scorer code and return the *source* to be executed in the sandbox worker —
-    generated code is never run in-process. If the sandbox later fails on that
-    source, the selector falls back to neutral engine play (it does not abort).
+    scorer code, validate it on sample positions, and return the *source* to be
+    executed in the sandbox worker — generated code is never run in-process. If
+    every generation attempt fails the sample-position gate we fall back to a
+    neutral in-process scorer (pure engine play); and if the sandbox later fails
+    on an accepted source mid-game, the selector still falls back to neutral per
+    move (it does not abort).
     """
     if not args.prompt:
         return queen_obsessed, None, "queen-obsessed (hand-coded)"
 
     from chess_mind_ai.llm.gemini import DEFAULT_MODEL, GeminiProvider
     from chess_mind_ai.llm.prompt import SYSTEM_PROMPT, extract_code
+    from chess_mind_ai.sandbox.validation import (
+        ValidationResult,
+        generate_and_validate,
+    )
+    from chess_mind_ai.scorers import neutral
 
     model = args.llm_model or DEFAULT_MODEL
     provider = GeminiProvider(model=model)
     print(f"Asking {model} for a scorer matching: {args.prompt!r}", file=sys.stderr)
-    raw = provider.generate(system=SYSTEM_PROMPT, user=args.prompt)
-    code = extract_code(raw)
 
-    if args.show_generated_code:
-        print("\n--- generated scorer ---\n", file=sys.stderr)
-        print(code, file=sys.stderr)
-        print("\n--- end generated scorer ---\n", file=sys.stderr)
+    def _generate() -> str:
+        raw = provider.generate(system=SYSTEM_PROMPT, user=args.prompt)
+        code = extract_code(raw)
+        if args.show_generated_code:
+            print("\n--- generated scorer ---\n", file=sys.stderr)
+            print(code, file=sys.stderr)
+            print("\n--- end generated scorer ---\n", file=sys.stderr)
+        return code
 
-    return None, code, f"prompt-driven ({model}, sandboxed)"
+    def _on_reject(attempt: int, result: ValidationResult) -> None:
+        print(f"  scorer rejected (attempt {attempt}): {result.reason}; "
+              f"regenerating...", file=sys.stderr)
+
+    print("Validating generated scorer on sample positions...", file=sys.stderr)
+    source = generate_and_validate(_generate, on_reject=_on_reject)
+    if source is not None:
+        return None, source, f"prompt-driven ({model}, sandboxed)"
+
+    print("All generation attempts failed validation; falling back to neutral "
+          "engine play.", file=sys.stderr)
+    return neutral, None, "neutral fallback (generation failed validation)"
 
 
 def _print_board(board: chess.Board) -> None:

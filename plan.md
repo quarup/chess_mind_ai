@@ -904,7 +904,7 @@ milestone:
 - Add memory/CPU limits (`resource.setrlimit`) **[done]**; network/mount isolation via `unshare` on Linux **[done]**; seccomp + macOS Seatbelt **[todo]**
 - Add output clamping **[done in M3]**
 - Add neutral fallback scorer (pure engine play on any failure) **[done]**
-- Add sample-position validation **[todo]**
+- Add sample-position validation **[done — `sandbox/validation.py`; CLI regenerates 3× then neutral fallback]**
 
 See [`docs/scorer-sandbox-design.md`](docs/scorer-sandbox-design.md) §7–8 for
 the hardening checklist and migration plan, and §11 for the cross-platform
@@ -1122,7 +1122,7 @@ M1 + M2 status:
 - [x] Add fallback scorer.                  *(M4 — neutral pure-engine fallback in `select_move_sandboxed`)*
 - [x] Add subprocess worker + timeout + rlimits. *(M4 — `sandbox/worker.py`; Linux unshare backend)*
 - [ ] Add seccomp + macOS Seatbelt backends. *(M4 — escape hardening; seccomp binding TODO)*
-- [ ] Add sample-position validation.       *(M4)*
+- [x] Add sample-position validation.       *(M4 — `sandbox/validation.py`)*
 - [x] Wire ReadOnlyBoard into prompt + worker. *(M4 migration — worker now uses ReadOnlyBoard; SafeChessContext kept for the in-process default `./play` path pending retirement)*
 - [ ] Add UCI wrapper.                      *(M5)*
 - [ ] Test with Cute Chess.                 *(M5)*

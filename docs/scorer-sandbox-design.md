@@ -181,10 +181,15 @@ history (UCI) + own_color**; the worker rebuilds a `chess.Board`, wraps it in
       before untrusted code runs. These bound *resource exhaustion*; they do
       **not** prevent escape (that's seccomp/namespaces above). cgroup caps TODO.
 - [x] Output clamping to `[-10, +10]`, non-finite → 0 (already in `loader.py`).
-- [ ] **Sample-position validation**: before using a generated scorer in a
-      game, run it on canned positions (start, queen hanging, mate threat,
-      endgame, pawn-only, queenside-only); reject if it crashes, times out,
-      returns non-numeric, is constant, or returns absurd values.
+- [x] **Sample-position validation**: before using a generated scorer in a
+      game, run it on canned positions (start, queen capture, queen under
+      attack, mate threat, endgame, pawn-only, queenside-heavy); reject if it
+      crashes, times out, returns malformed output, or is constant (never
+      prefers one legal move over another, so it cannot influence selection).
+      Non-numeric / non-finite / absurd outputs are already neutralized by the
+      loader's output clamp. Implemented in `sandbox/validation.py`
+      (`validate_scorer_source` + `generate_and_validate`); the CLI regenerates
+      up to 3× on rejection, then falls back to a neutral in-process scorer.
 - [x] **Neutral fallback**: on any sandbox failure (validation, timeout,
       resource limit, crash, malformed output) `select_move_sandboxed` falls
       back to an all-zero style score — pure engine play at the target Elo —
@@ -210,8 +215,9 @@ history (UCI) + own_color**; the worker rebuilds a `chess.Board`, wraps it in
    ported to the new API as an inline parity reference in `tests/test_worker.py`
    (sandboxed port picks the same move as the in-process `SafeChessContext`
    scorer it mirrors).
-5. **Next:** add sample-position validation (run a new scorer on canned
-   positions before first use; regenerate or fall back if it misbehaves).
+5. **Done:** sample-position validation (`sandbox/validation.py`) runs a new
+   scorer on canned positions before first use and regenerates (up to 3×) or
+   falls back to neutral engine play if it crashes/times-out/is constant.
 6. Once fully at parity, retire `SafeChessContext`. **Not yet done:**
    `SafeChessContext` still backs the in-process default `./play` path
    (`select_move` + the hand-coded `queen_obsessed` scorer). Retiring it needs

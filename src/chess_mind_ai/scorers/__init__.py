@@ -1,3 +1,3 @@
-from chess_mind_ai.scorers import queen_obsessed
+from chess_mind_ai.scorers import neutral, queen_obsessed
 
-__all__ = ["queen_obsessed"]
+__all__ = ["neutral", "queen_obsessed"]
