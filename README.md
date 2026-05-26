@@ -8,7 +8,7 @@ The long-term vision is for ChessMind AI to support voice and conversational int
 
 **Milestones 1 + 2 + 3**: a Python chess engine wrapper with a hand-coded *queen-obsessed* style scorer, Elo-based candidate filtering, a terminal CLI for playing against the bot, and **LLM-generated style scorers** via a provider-abstracted layer (default: Google Gemini 2.5 Flash-Lite, free tier).
 
-Subprocess sandboxing and the UCI engine wrapper land in later milestones.
+**Milestone 4 (in progress)**: LLM-generated scorers now run in an **isolated worker process** — separate process, `setrlimit` memory/CPU caps, a wall-clock timeout, a scrubbed environment, and unprivileged `unshare` network/mount isolation on Linux — falling back to neutral engine play if the sandbox fails. See [`docs/scorer-sandbox-design.md`](docs/scorer-sandbox-design.md). The UCI engine wrapper lands in M5.
 
 ## Requirements
 

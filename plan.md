@@ -899,12 +899,12 @@ milestone:
 
 - Harden the AST validator to an allowlist (fail closed) **[done]**
 - Build the read-only board facade for richer scorers **[done — `readonly_board.py`, not yet wired in]**
-- Move generated code execution into a separate process (batch-per-move)
-- Add timeout
-- Add memory/CPU limits (`resource.setrlimit`, dropped FS/network)
+- Move generated code execution into a separate process (batch-per-move) **[done — `sandbox/worker.py`]**
+- Add wall-clock timeout **[done]**
+- Add memory/CPU limits (`resource.setrlimit`) **[done]**; network/mount isolation via `unshare` on Linux **[done]**; seccomp + macOS Seatbelt **[todo]**
 - Add output clamping **[done in M3]**
-- Add sample-position validation
-- Add neutral fallback scorer (pure engine play on any failure)
+- Add neutral fallback scorer (pure engine play on any failure) **[done]**
+- Add sample-position validation **[todo]**
 
 See [`docs/scorer-sandbox-design.md`](docs/scorer-sandbox-design.md) §7–8 for
 the hardening checklist and migration plan, and §11 for the cross-platform
@@ -1119,10 +1119,11 @@ M1 + M2 status:
 - [x] Add score clamping.                   *(M3, promoted from M4)*
 - [x] Harden validator to an allowlist.     *(M4 — fail closed; closes str.format escape)*
 - [x] Build read-only board facade.         *(M4 — `readonly_board.py`; not yet wired in)*
-- [ ] Add fallback scorer.                  *(M4 — current behavior is hard-fail on LLM error)*
-- [ ] Add subprocess timeout + rlimits.     *(M4)*
+- [x] Add fallback scorer.                  *(M4 — neutral pure-engine fallback in `select_move_sandboxed`)*
+- [x] Add subprocess worker + timeout + rlimits. *(M4 — `sandbox/worker.py`; Linux unshare backend)*
+- [ ] Add seccomp + macOS Seatbelt backends. *(M4 — escape hardening; seccomp binding TODO)*
 - [ ] Add sample-position validation.       *(M4)*
-- [ ] Wire ReadOnlyBoard into prompt + selector. *(M4/M5 migration)*
+- [ ] Wire ReadOnlyBoard into prompt + worker. *(M4/M5 migration — worker currently uses SafeChessContext)*
 - [ ] Add UCI wrapper.                      *(M5)*
 - [ ] Test with Cute Chess.                 *(M5)*
 - [ ] Iterate on scoring quality.           *(ongoing)*

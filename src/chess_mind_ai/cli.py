@@ -8,7 +8,12 @@ import chess
 from chess_mind_ai.elo import candidate_count
 from chess_mind_ai.engine import ChessEngine
 from chess_mind_ai.scorers import queen_obsessed
-from chess_mind_ai.selector import MoveBreakdown, StyleScorer, select_move
+from chess_mind_ai.selector import (
+    MoveBreakdown,
+    StyleScorer,
+    select_move,
+    select_move_sandboxed,
+)
 
 
 def _build_parser() -> argparse.ArgumentParser:
@@ -54,7 +59,7 @@ def _play(args: argparse.Namespace) -> int:
     human_color = chess.WHITE if args.color == "white" else chess.BLACK
     ai_color = not human_color
 
-    scorer, style_label = _build_scorer(args)
+    scorer, source, style_label = _build_scorer(args)
 
     multipv = args.multipv if args.multipv is not None else candidate_count(args.elo)
     engine = ChessEngine(
@@ -77,9 +82,14 @@ def _play(args: argparse.Namespace) -> int:
                     print("Goodbye.")
                     return 0
             else:
-                move, breakdown = select_move(
-                    engine, scorer, board, args.elo, ai_color,
-                )
+                if source is not None:
+                    move, breakdown = select_move_sandboxed(
+                        engine, source, board, args.elo, ai_color,
+                    )
+                else:
+                    move, breakdown = select_move(
+                        engine, scorer, board, args.elo, ai_color,
+                    )
                 if move is None:
                     print("AI returned no move; aborting.")
                     return 1
@@ -98,20 +108,22 @@ def _play(args: argparse.Namespace) -> int:
         engine.close()
 
 
-def _build_scorer(args: argparse.Namespace) -> tuple[StyleScorer, str]:
-    """Return (scorer, human-readable style label).
+def _build_scorer(
+    args: argparse.Namespace,
+) -> tuple[StyleScorer | None, str | None, str]:
+    """Return (in_process_scorer, generated_source, label).
 
-    With no --prompt, returns the hand-coded queen-obsessed scorer. With a
-    prompt, asks Gemini for scorer code, validates it, and loads it. Any
-    failure (missing API key, validation error, etc.) raises — we deliberately
-    do not silently fall back, per the M3 'hard fail' decision.
+    Exactly one of (scorer, source) is set. With no --prompt we use the trusted
+    hand-coded queen-obsessed scorer in-process. With a prompt, we ask Gemini for
+    scorer code and return the *source* to be executed in the sandbox worker —
+    generated code is never run in-process. If the sandbox later fails on that
+    source, the selector falls back to neutral engine play (it does not abort).
     """
     if not args.prompt:
-        return queen_obsessed, "queen-obsessed (hand-coded)"
+        return queen_obsessed, None, "queen-obsessed (hand-coded)"
 
     from chess_mind_ai.llm.gemini import DEFAULT_MODEL, GeminiProvider
     from chess_mind_ai.llm.prompt import SYSTEM_PROMPT, extract_code
-    from chess_mind_ai.sandbox.loader import load_scorer
 
     model = args.llm_model or DEFAULT_MODEL
     provider = GeminiProvider(model=model)
@@ -124,8 +136,7 @@ def _build_scorer(args: argparse.Namespace) -> tuple[StyleScorer, str]:
         print(code, file=sys.stderr)
         print("\n--- end generated scorer ---\n", file=sys.stderr)
 
-    scorer = load_scorer(code)
-    return scorer, f"prompt-driven ({model})"
+    return None, code, f"prompt-driven ({model}, sandboxed)"
 
 
 def _print_board(board: chess.Board) -> None:

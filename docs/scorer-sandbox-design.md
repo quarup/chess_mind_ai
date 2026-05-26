@@ -162,43 +162,52 @@ history (UCI) + own_color**; the worker rebuilds a `chess.Board`, wraps it in
 
 - [x] Allowlist AST validator (fail closed) + close `str.format` hole +
       block leading-underscore attribute access.
-- [ ] Run the scorer in a **separate process** (batch-per-move: one worker call
-      scores all candidates for a move and returns the breakdowns — avoids
-      per-call process-spawn cost).
-- [ ] **Wall-clock timeout** via an external watchdog that kills the worker.
-      Note: this is *separate from* the CPU rlimit below — `RLIMIT_CPU` does not
-      fire on a blocking/sleeping loop, so we need a real wall-clock kill.
-- [ ] **Escape prevention (the primary defense):** `seccomp-bpf` with a tight
-      syscall allowlist (a pure scorer needs almost none) + an **empty network
-      namespace** + **no filesystem** (Landlock or a mount namespace). This —
-      not the AST validator — is what actually contains an escape. `bubblewrap`
-      / `nsjail`, or Anthropic's open-source `@anthropic-ai/sandbox-runtime`
-      (bubblewrap-based on Linux), can assemble most of this around the worker.
-- [ ] **Resource limits:** `resource.setrlimit(RLIMIT_AS, RLIMIT_CPU)` +
-      cgroup memory cap. These bound *resource exhaustion*; they do **not**
-      prevent escape (that's seccomp/namespaces above).
+- [x] Run the scorer in a **separate process** (batch-per-move: one worker call
+      scores all candidates for a move and returns the triples). Implemented in
+      `sandbox/worker.py` (`score_candidates_sandboxed`) + `selector.
+      select_move_sandboxed`. Per-call interpreter spawn (~0.5s); a persistent
+      worker pool is a later optimization.
+- [x] **Wall-clock timeout** killing the worker's process group. Separate from
+      the CPU rlimit below — `RLIMIT_CPU` does not fire on a blocking/sleeping
+      loop, so the parent enforces a real wall-clock kill.
+- [~] **Escape prevention (the primary defense):** on Linux the worker is
+      wrapped in unprivileged `unshare --user --map-root-user --net --mount`
+      namespaces (drops network, isolates mount/user view). **seccomp-bpf is
+      still TODO** — no Python binding is installed in the target environments
+      yet; it's the highest-value remaining hardening. The macOS Seatbelt
+      backend is also TODO (currently macOS runs in "reduced isolation").
+- [x] **Resource limits:** `resource.setrlimit` for `RLIMIT_AS` (memory),
+      `RLIMIT_CPU`, and `RLIMIT_FSIZE=0` (no file writes), applied in the worker
+      before untrusted code runs. These bound *resource exhaustion*; they do
+      **not** prevent escape (that's seccomp/namespaces above). cgroup caps TODO.
 - [x] Output clamping to `[-10, +10]`, non-finite → 0 (already in `loader.py`).
 - [ ] **Sample-position validation**: before using a generated scorer in a
       game, run it on canned positions (start, queen hanging, mate threat,
       endgame, pawn-only, queenside-only); reject if it crashes, times out,
       returns non-numeric, is constant, or returns absurd values.
-- [ ] **Neutral fallback**: on any generation/validation/execution failure,
-      fall back to a zero scorer (pure engine play at target Elo) instead of
-      hard-failing the game (plan §14). Currently `cli._build_scorer` hard-fails.
+- [x] **Neutral fallback**: on any sandbox failure (validation, timeout,
+      resource limit, crash, malformed output) `select_move_sandboxed` falls
+      back to an all-zero style score — pure engine play at the target Elo —
+      instead of aborting the game (plan §14). The CLI routes LLM-generated
+      source through the sandbox; the trusted hand-coded scorer stays
+      in-process.
 
 ## 8. Migration plan (C is built but not yet wired in)
 
 1. **Done:** allowlist validator; `ReadOnlyBoard` + `CHESS` namespace + tests.
-   The live game still uses `SafeChessContext` and the hand-coded
-   queen-obsessed scorer — nothing is broken.
-2. **Next:** update the system prompt (`llm/prompt.py`) to teach the
-   `ReadOnlyBoard` API instead of the old context; teach the new scorer
-   signature to call `chess.*` helpers.
-3. Build the M4 separate-process worker that reconstructs `ReadOnlyBoard` from
-   FEN + history and runs the scorer batched-per-move, with timeout + rlimits.
-4. Port the selector to call the worker; port (or re-derive) the
-   queen-obsessed scorer against the new API for parity testing.
-5. Add the neutral fallback + sample-position validation.
+2. **Done:** M4 separate-process worker (`sandbox/worker.py`) + sandboxed
+   selector + neutral fallback. The CLI now runs LLM-generated source in the
+   sandbox. **Note:** the worker currently reconstructs **`SafeChessContext`**
+   (the context the current system prompt teaches), *not* `ReadOnlyBoard` — so
+   option C is built but not yet the live contract. Switching the worker to
+   `ReadOnlyBoard` is steps 3–5 below.
+3. **Next:** update the system prompt (`llm/prompt.py`) to teach the
+   `ReadOnlyBoard` API + `chess.*` helpers instead of the old context.
+4. Swap the worker's context from `SafeChessContext` to `ReadOnlyBoard`
+   (inject `scorer_globals()` into the loader namespace); port (or re-derive)
+   the queen-obsessed scorer against the new API for parity testing.
+5. Add sample-position validation (run a new scorer on canned positions before
+   first use; regenerate or fall back if it misbehaves).
 6. Once at parity, retire `SafeChessContext`.
 
 ## 9. Open questions for next session
