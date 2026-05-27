@@ -568,14 +568,16 @@ Recommended restrictions:
 
 ## 7. Safe Chess Context API
 
-> **Direction change (2026-05):** rather than the narrow, queen-shaped
+> **Direction change (2026-05) — done:** rather than the narrow, queen-shaped
 > `SafeChessContext` below (which capped expressiveness — e.g. "advance pawns
-> aggressively" was inexpressible), we are moving to a **read-only board
-> facade** that exposes broad chess *primitives* the scorer composes itself,
-> plus a small set of precomputed *scalar* features for expensive/fuzzy
-> concepts. Built in `src/chess_mind_ai/readonly_board.py` (`ReadOnlyBoard` +
-> the curated `CHESS` namespace); not yet wired into the live game. The set of
-> primitives and scalars was derived from a prompt brainstorm
+> aggressively" was inexpressible), we moved to a **read-only board facade**
+> that exposes broad chess *primitives* the scorer composes itself (a small set
+> of precomputed *scalar* features for expensive/fuzzy concepts is a planned
+> follow-up). Built in `src/chess_mind_ai/readonly_board.py` (`ReadOnlyBoard` +
+> the curated `CHESS` namespace) and now the live scorer context for both the
+> in-process and sandboxed paths; `SafeChessContext` has been removed. The
+> `SafeChessContext` sketch below is kept only as the historical contrast. The
+> set of primitives and scalars was derived from a prompt brainstorm
 > ([`prompt_minds.md`](prompt_minds.md)) and the rationale is in
 > [`docs/scorer-sandbox-design.md`](docs/scorer-sandbox-design.md).
 
@@ -794,10 +796,10 @@ def line_score(line, scorer):
     score += line.engine_score
 
     for position, move in line.own_moves:
-        ctx = SafeChessContext(position, line.history)
+        ctx = ReadOnlyBoard(position, own_color)
         score += scorer.action_score(ctx, move)
 
-    final_ctx = SafeChessContext(line.final_position, line.history)
+    final_ctx = ReadOnlyBoard(line.final_position, own_color)
     score += scorer.state_score(final_ctx)
     score += scorer.trajectory_score(final_ctx)
 
@@ -1123,7 +1125,8 @@ M1 + M2 status:
 - [x] Add subprocess worker + timeout + rlimits. *(M4 — `sandbox/worker.py`; Linux unshare backend)*
 - [ ] Add seccomp + macOS Seatbelt backends. *(M4 — escape hardening; seccomp binding TODO)*
 - [x] Add sample-position validation.       *(M4 — `sandbox/validation.py`)*
-- [x] Wire ReadOnlyBoard into prompt + worker. *(M4 migration — worker now uses ReadOnlyBoard; SafeChessContext kept for the in-process default `./play` path pending retirement)*
+- [x] Wire ReadOnlyBoard into prompt + worker. *(M4 migration — both sandboxed and in-process paths use ReadOnlyBoard)*
+- [x] Retire `SafeChessContext`.            *(M4 — removed; `context.py` deleted, both paths on ReadOnlyBoard)*
 - [ ] Add UCI wrapper.                      *(M5)*
 - [ ] Test with Cute Chess.                 *(M5)*
 - [ ] Iterate on scoring quality.           *(ongoing)*

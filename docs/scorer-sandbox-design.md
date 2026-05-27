@@ -8,10 +8,11 @@
 
 ## 1. The problem
 
-The M2/M3 scorer interface, `SafeChessContext` (`src/chess_mind_ai/context.py`),
-exposes ~12 hand-picked, mostly queen-shaped scalar queries
-(`piece_mobility("queen")`, `is_capture(move)`, `count_own_moves_by_piece(...)`,
-etc.). That surface is the **bottleneck on expressiveness**: an LLM asked for
+The original M2/M3 scorer interface, `SafeChessContext` (since removed — this
+is the problem it had), exposed ~12 hand-picked, mostly queen-shaped scalar
+queries (`piece_mobility("queen")`, `is_capture(move)`,
+`count_own_moves_by_piece(...)`, etc.). That surface was the **bottleneck on
+expressiveness**: an LLM asked for
 "advance your pawns aggressively" cannot reward pawn advancement, because no
 context method describes it. The generated code looks limited because the
 *vocabulary it is allowed to speak* is limited.
@@ -197,7 +198,7 @@ history (UCI) + own_color**; the worker rebuilds a `chess.Board`, wraps it in
       source through the sandbox; the trusted hand-coded scorer stays
       in-process.
 
-## 8. Migration plan (C is built but not yet wired in)
+## 8. Migration plan (complete — C is the live contract)
 
 1. **Done:** allowlist validator; `ReadOnlyBoard` + `CHESS` namespace + tests.
 2. **Done:** M4 separate-process worker (`sandbox/worker.py`) + sandboxed
@@ -212,16 +213,18 @@ history (UCI) + own_color**; the worker rebuilds a `chess.Board`, wraps it in
    `piece`) into the exec namespace. A `peek(move)` method was added to
    `ReadOnlyBoard` so `action_score` can inspect the resulting position (e.g.
    hang/trade checks) without a mutable board. The queen-obsessed scorer is
-   ported to the new API as an inline parity reference in `tests/test_worker.py`
-   (sandboxed port picks the same move as the in-process `SafeChessContext`
-   scorer it mirrors).
+   ported to the new API; an inline ReadOnlyBoard scorer source in
+   `tests/test_worker.py` is kept as a parity reference (sandboxed source picks
+   the same move as the in-process module).
 5. **Done:** sample-position validation (`sandbox/validation.py`) runs a new
    scorer on canned positions before first use and regenerates (up to 3×) or
    falls back to neutral engine play if it crashes/times-out/is constant.
-6. Once fully at parity, retire `SafeChessContext`. **Not yet done:**
-   `SafeChessContext` still backs the in-process default `./play` path
-   (`select_move` + the hand-coded `queen_obsessed` scorer). Retiring it needs
-   an explicit decision (moving that path onto `ReadOnlyBoard` too).
+6. **Done:** `SafeChessContext` retired. The in-process default `./play` path
+   (`select_move` / `_score_triples_in_process`) now builds `ReadOnlyBoard` +
+   `peek`, and the hand-coded `queen_obsessed` scorer is ported to the new API,
+   so both paths share one scorer context. `context.py` and its tests were
+   removed; parity is pinned by `tests/test_queen_obsessed.py` and
+   `tests/test_selector.py` (unchanged move-choice assertions).
 
 ## 9. Open questions for next session
 

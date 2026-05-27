@@ -31,9 +31,10 @@ _QUEEN_BONUS = textwrap.dedent("""
         return 0.0
 """)
 
-# ReadOnlyBoard port of the hand-coded queen_obsessed scorer (design-doc §8
-# step 4). Kept inline as a parity reference: run through the sandbox it should
-# pick the same move as the in-process SafeChessContext scorer it mirrors.
+# ReadOnlyBoard scorer source equivalent to the hand-coded queen_obsessed
+# module. Kept inline as a parity reference: run through the sandbox (as LLM
+# output would be) it should pick the same move as the in-process module scorer,
+# confirming the sandboxed and in-process paths agree.
 _QUEEN_OBSESSED_RO = textwrap.dedent("""
     def action_score(ctx, move):
         score = 0.0
@@ -236,9 +237,9 @@ def test_sandboxed_selector_falls_back_to_neutral_on_bad_source():
 
 
 def test_readonly_port_at_parity_with_inprocess_queen_obsessed():
-    """The ReadOnlyBoard port (sandboxed) picks the same move as the hand-coded
-    SafeChessContext queen_obsessed (in-process) — the design-doc §8 step-4
-    parity check before SafeChessContext can be retired."""
+    """The sandboxed ReadOnlyBoard scorer source picks the same move as the
+    in-process queen_obsessed module — confirming the sandboxed and in-process
+    paths agree on identical scoring logic."""
     board = chess.Board(_TWIN_CAPTURE_FEN)
     cands = [Candidate(_BXD4, 100), Candidate(_QXD4, 85)]
 

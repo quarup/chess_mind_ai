@@ -2,13 +2,15 @@
 
 Background / why this exists
 ----------------------------
-The original `SafeChessContext` exposed a small, hand-picked set of high-level
-scalar queries (piece mobility, "is this a queen capture", etc.). That surface
-is the bottleneck on how expressive a generated scorer can be: a prompt like
-"advance your pawns aggressively" has no way to reward pawn advancement because
-no method describes it. Rather than grow that list one bespoke method per
-prompt, this facade exposes a *broad set of read-only chess primitives* and
-lets the generated scorer compose them. See `docs/scorer-sandbox-design.md`.
+The earlier scorer context (the now-removed `SafeChessContext`) exposed a small,
+hand-picked set of high-level scalar queries (piece mobility, "is this a queen
+capture", etc.). That surface was the bottleneck on how expressive a generated
+scorer can be: a prompt like "advance your pawns aggressively" had no way to
+reward pawn advancement because no method described it. Rather than grow that
+list one bespoke method per prompt, this facade exposes a *broad set of
+read-only chess primitives* and lets the generated scorer compose them. It is
+now the single scorer context for both the in-process and sandboxed paths. See
+`docs/scorer-sandbox-design.md`.
 
 Security model (read this before widening the surface)
 ------------------------------------------------------

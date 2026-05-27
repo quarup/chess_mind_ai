@@ -1,11 +1,11 @@
 import chess
 
-from chess_mind_ai.context import SafeChessContext
+from chess_mind_ai.readonly_board import ReadOnlyBoard
 from chess_mind_ai.scorers import queen_obsessed
 
 
-def ctx(fen: str, own_color: chess.Color = chess.WHITE) -> SafeChessContext:
-    return SafeChessContext(chess.Board(fen), own_color)
+def ctx(fen: str, own_color: chess.Color = chess.WHITE) -> ReadOnlyBoard:
+    return ReadOnlyBoard(chess.Board(fen), own_color)
 
 
 def test_queen_capture_outranks_non_queen_capture():
@@ -14,7 +14,7 @@ def test_queen_capture_outranks_non_queen_capture():
     board = chess.Board("r1bqkbnr/pppp1ppp/2n5/4p2Q/2B1P3/8/PPPP1PPP/RNB1K1NR w KQkq - 0 1")
     queen_capture = chess.Move.from_uci("h5f7")
     bishop_capture = chess.Move.from_uci("c4f7")
-    c = SafeChessContext(board, chess.WHITE)
+    c = ReadOnlyBoard(board, chess.WHITE)
     queen_score = queen_obsessed.action_score(c, queen_capture)
     bishop_score = queen_obsessed.action_score(c, bishop_capture)
     assert queen_score > bishop_score
@@ -25,7 +25,7 @@ def test_hanging_queen_punished():
     board = chess.Board("4k3/4p3/8/8/8/8/4K3/3Q4 w - - 0 1")
     hang_move = chess.Move.from_uci("d1d6")  # attacked by e7 pawn, undefended
     safe_move = chess.Move.from_uci("d1d3")
-    c = SafeChessContext(board, chess.WHITE)
+    c = ReadOnlyBoard(board, chess.WHITE)
     assert queen_obsessed.action_score(c, hang_move) < queen_obsessed.action_score(c, safe_move)
 
 
@@ -36,7 +36,7 @@ def test_queen_check_outranks_quiet_queen_move():
     board = chess.Board("7k/8/8/8/8/8/4K3/Q7 w - - 0 1")
     check = chess.Move.from_uci("a1a8")
     quiet = chess.Move.from_uci("a1a4")
-    c = SafeChessContext(board, chess.WHITE)
+    c = ReadOnlyBoard(board, chess.WHITE)
     assert queen_obsessed.action_score(c, check) > queen_obsessed.action_score(c, quiet)
 
 
@@ -64,12 +64,12 @@ def test_trajectory_rewards_queen_move_history():
     board = chess.Board()
     for m in moves:
         board.push(m)
-    queen_active = SafeChessContext(board, chess.WHITE)
+    queen_active = ReadOnlyBoard(board, chess.WHITE)
 
     quiet_board = chess.Board()
     for m in [chess.Move.from_uci("e2e4"), chess.Move.from_uci("e7e5")]:
         quiet_board.push(m)
-    quiet_ctx = SafeChessContext(quiet_board, chess.WHITE)
+    quiet_ctx = ReadOnlyBoard(quiet_board, chess.WHITE)
 
     active_score = queen_obsessed.trajectory_score(queen_active)
     quiet_score = queen_obsessed.trajectory_score(quiet_ctx)

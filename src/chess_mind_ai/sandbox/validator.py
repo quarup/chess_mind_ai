@@ -7,8 +7,8 @@ thought to name, and therefore failed *open* on novel tricks). See
 `docs/scorer-sandbox-design.md` for the full rationale.
 
 Crucially, this in-process layer is **not** the real security boundary. Any
-live Python object handed to generated code — including `SafeChessContext` —
-is a gateway to the interpreter via the object graph (``x.__class__`` →
+live Python object handed to generated code — including the `ReadOnlyBoard`
+facade — is a gateway to the interpreter via the object graph (``x.__class__`` →
 ``__subclasses__`` → ``__globals__``), so the only thing standing between
 generated code and an escape is whether the *syntax* needed to walk that graph
 is expressible. A denylist over a Turing-complete language inevitably leaks

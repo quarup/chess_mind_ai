@@ -10,15 +10,15 @@ from typing import Protocol
 
 import chess
 
-from chess_mind_ai.context import SafeChessContext
 from chess_mind_ai.elo import blunder_budget_cp, noise_amplitude
 from chess_mind_ai.engine import ChessEngine
+from chess_mind_ai.readonly_board import ReadOnlyBoard
 
 
 class StyleScorer(Protocol):
-    def action_score(self, ctx: SafeChessContext, move: chess.Move) -> float: ...
-    def state_score(self, ctx: SafeChessContext) -> float: ...
-    def trajectory_score(self, ctx: SafeChessContext) -> float: ...
+    def action_score(self, ctx: ReadOnlyBoard, move: chess.Move) -> float: ...
+    def state_score(self, ctx: ReadOnlyBoard) -> float: ...
+    def trajectory_score(self, ctx: ReadOnlyBoard) -> float: ...
 
 
 @dataclass(frozen=True)
@@ -43,13 +43,12 @@ def _score_triples_in_process(
     own_color: chess.Color,
     moves: list[chess.Move],
 ) -> list[tuple[float, float, float]]:
+    # The before-position is the same for every candidate, so build it once;
+    # peek(move) gives each candidate's after-position. Mirrors the worker.
+    ctx_before = ReadOnlyBoard(board, own_color)
     triples: list[tuple[float, float, float]] = []
     for move in moves:
-        ctx_before = SafeChessContext(board, own_color)
-        board_after = board.copy()
-        board_after.push(move)
-        ctx_after = SafeChessContext(board_after, own_color)
-
+        ctx_after = ctx_before.peek(move)
         action = scorer.action_score(ctx_before, move)
         state = scorer.state_score(ctx_after)
         trajectory = scorer.trajectory_score(ctx_after)
