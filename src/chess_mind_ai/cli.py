@@ -45,6 +45,12 @@ def _build_parser() -> argparse.ArgumentParser:
                            "Default scales with --elo (more candidates at lower Elo).")
     play.add_argument("--movetime", type=int, default=1000,
                       help="Stockfish thinking time per move, in ms (default: 1000).")
+
+    sub.add_parser(
+        "uci",
+        help="Speak UCI on stdin/stdout (for Cute Chess, Arena, cutechess-cli). "
+             "Configure prompt/Elo via setoption; see plan.md M5.",
+    )
     return parser
 
 
@@ -52,6 +58,10 @@ def main(argv: list[str] | None = None) -> int:
     args = _build_parser().parse_args(argv)
     if args.command == "play":
         return _play(args)
+    if args.command == "uci":
+        from chess_mind_ai.uci import UCIEngine
+
+        return UCIEngine().run()
     return 1
 
 

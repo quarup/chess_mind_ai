@@ -13,6 +13,7 @@ dependencies = [
 
 [project.scripts]
 chess-mind-ai = "chess_mind_ai.cli:main"
+chess-mind-ai-uci = "chess_mind_ai.uci:main"
 
 [dependency-groups]
 dev = [

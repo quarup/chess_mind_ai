@@ -1,0 +1,31 @@
+#!/bin/bash
+# Launch the ChessMind AI UCI engine. Point Cute Chess / Arena / cutechess-cli
+# at this script as the engine binary.
+#
+# Like ./play, this works around a uv + Python 3.13/3.14 bug on macOS where uv
+# marks editable-install `.pth` files with the UF_HIDDEN flag and the
+# `com.apple.provenance` xattr, which Python 3.13+ then silently skips. We clear
+# both, sync deps, clear again (sync re-sets them), then call the venv binary
+# directly (NOT via `uv run`, which would re-set the markers before Python
+# starts). See ./play and conftest.py for the full story.
+#
+# Usage (in a GUI, set the engine command to the absolute path of this file):
+#   /path/to/chess_mind_ai/uci
+#
+# Configure style + strength via UCI options once connected, e.g.:
+#   setoption name Prompt value play hyper-aggressively with the queen
+#   setoption name UCI_Elo value 1600
+
+set -e
+cd "$(dirname "$0")"
+
+clean_pth() {
+    chflags nohidden .venv/lib/python*/site-packages/*.pth 2>/dev/null || true
+    xattr -d com.apple.provenance .venv/lib/python*/site-packages/*.pth 2>/dev/null || true
+}
+
+clean_pth
+uv sync --quiet
+clean_pth
+
+exec .venv/bin/chess-mind-ai-uci

@@ -912,11 +912,27 @@ See [`docs/scorer-sandbox-design.md`](docs/scorer-sandbox-design.md) §7–8 for
 the hardening checklist and migration plan, and §11 for the cross-platform
 runtime plan (layered worker: portable core + pluggable macOS/Linux backend).
 
-### Milestone 5: UCI Engine Interface
+### Milestone 5: UCI Engine Interface **[done]**
 
-- Make the bot speak UCI
-- Load prompt and Elo from config
-- Test in Cute Chess or Arena
+- Make the bot speak UCI **[done — `src/chess_mind_ai/uci.py`]**
+- Load prompt and Elo from config **[done — via UCI options: `Prompt`, `UCI_Elo`/`UCI_LimitStrength`, plus `Stockfish Path`, `MultiPV`, `Move Time`, `LLM Model`, `Style Weight`]**
+- Test in Cute Chess or Arena **[protocol verified end-to-end against real Stockfish in tests; GUI smoke-test on the user's machine still recommended]**
+
+Shipped as `src/chess_mind_ai/uci.py` (the `UCIEngine` command loop) with the
+`chess-mind-ai-uci` console script, a `chess-mind-ai uci` subcommand, and the
+`./uci` launcher (mirrors `./play`'s macOS uv/`.pth` workaround). The UCI layer
+is a thin protocol shell over the existing `engine`/`selector`/`sandbox` stack,
+with `engine_factory`/`scorer_factory` seams so the loop is tested without
+Stockfish or network (`tests/test_uci.py`). Key M5 decisions:
+
+- **Config via UCI options** (editable in the GUI engine dialog), exposing the
+  standard `UCI_Elo`/`UCI_LimitStrength` that GUIs understand natively.
+- **Scorer generated eagerly at `isready`** — the GUI's pre-clock configuration
+  checkpoint — then cached for the game; generated code still runs only in the
+  sandbox worker, with neutral fallback on any failure (plan §14).
+- **Move timing: honor explicit `go movetime`, else the `Move Time` default.**
+  Full clock budgeting from `wtime`/`btime` is deferred to M6, where fair
+  tournament time controls matter (`ChessEngine.set_movetime_ms` is the seam).
 
 ### Milestone 6: AI-vs-AI Evaluation
 
@@ -1127,8 +1143,8 @@ M1 + M2 status:
 - [x] Add sample-position validation.       *(M4 — `sandbox/validation.py`)*
 - [x] Wire ReadOnlyBoard into prompt + worker. *(M4 migration — both sandboxed and in-process paths use ReadOnlyBoard)*
 - [x] Retire `SafeChessContext`.            *(M4 — removed; `context.py` deleted, both paths on ReadOnlyBoard)*
-- [ ] Add UCI wrapper.                      *(M5)*
-- [ ] Test with Cute Chess.                 *(M5)*
+- [x] Add UCI wrapper.                      *(M5 — `uci.py`; options-based config, eager scorer gen, movetime honoring)*
+- [~] Test with Cute Chess.                 *(M5 — protocol verified e2e against real Stockfish; GUI smoke-test pending on user's machine)*
 - [ ] Iterate on scoring quality.           *(ongoing)*
 
 ---

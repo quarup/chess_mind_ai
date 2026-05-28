@@ -20,6 +20,11 @@ class ChessEngine:
         self._multipv = multipv
         self._movetime_ms = movetime_ms
 
+    def set_movetime_ms(self, movetime_ms: int) -> None:
+        """Adjust per-move think time. Used by the UCI layer to honor a
+        GUI-supplied `go movetime N` for the next search (plan.md M5)."""
+        self._movetime_ms = movetime_ms
+
     def top_candidates(self, board: chess.Board) -> list[Candidate]:
         if board.is_game_over():
             return []
