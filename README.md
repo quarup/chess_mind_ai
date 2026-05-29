@@ -45,7 +45,9 @@ Type moves in [Standard Algebraic Notation](https://en.wikipedia.org/wiki/Algebr
 
 ChessMind AI speaks the [UCI protocol](https://en.wikipedia.org/wiki/Universal_Chess_Interface), so you can load it into a chess GUI like [Cute Chess](https://cutechess.com/) or Arena, or run engine-vs-engine matches with `cutechess-cli`.
 
-Point your GUI at the `./uci` launcher script (it handles the venv) or run the console script directly:
+**See [`docs/playing-in-cutechess.md`](docs/playing-in-cutechess.md)** for a full step-by-step on installing Cute Chess (including the macOS build-from-source recipe), registering ChessMind AI + Stockfish as engines, playing human-vs-AI games, configuring prompt-driven personalities, and running headless tournaments with `cutechess-cli`.
+
+The shortest path: point your GUI at the `./uci` launcher script (it handles the venv) or run the console script directly:
 
 ```bash
 uv run chess-mind-ai-uci      # or: ./uci   (also: uv run chess-mind-ai uci)
