@@ -934,20 +934,58 @@ Stockfish or network (`tests/test_uci.py`). Key M5 decisions:
   Full clock budgeting from `wtime`/`btime` is deferred to M6, where fair
   tournament time controls matter (`ChessEngine.set_movetime_ms` is the seam).
 
-### Milestone 6: AI-vs-AI Evaluation
+### Milestone 6: AI-vs-AI Evaluation **[deferred]**
+
+> **Priority note (2026-05):** deprioritized in favor of the **character /
+> persona layer (Milestone 9)**, which is the product direction we care most
+> about right now. M6 remains valuable for tuning scoring quality later, but it
+> is not on the critical path.
 
 - Run prompt-vs-prompt matches
 - Use `cutechess-cli`
 - Save PGNs
 - Calculate win rates and style metrics
 
-### Milestone 7: Optional Web App
+### Milestone 7: Web App
 
-- React chessboard frontend
-- Backend game session manager
-- Prompt textbox
-- Elo slider
+> Effectively merged with the **character face** of Milestone 9 (Phase D): the
+> web app is where voice, portrait, and chat live, since UCI GUIs have no
+> channel for them. Reuse OSS components (chessground + chess.js); do not fork a
+> full app. See [`docs/persona-design.md`](docs/persona-design.md) §9.
+
+- Chessboard frontend (chessground / chess.js)
+- Backend game session manager (websocket)
+- Prompt textbox + Elo slider
+- Persona portrait panel + chat bubble + push-to-talk
 - AI-vs-human and AI-vs-AI modes
+
+### Milestone 9: Character / Persona Layer **[Phase A done — current focus]**
+
+Turn each bot into a *character*: the same prompt that generates the scorer also
+generates a persona (name, voice, portrait, in-character system prompt) that
+reacts to the real game and talks to the player. Full design (incl. the
+open-source TTS analysis and the app decision) in
+[`docs/persona-design.md`](docs/persona-design.md).
+
+- **Phase A — Persona + game-grounded text chat** **[done]**
+  - Persona generated from the style prompt (`persona/spec.py`,
+    `persona/prompt.py`); tolerant JSON parse + neutral fallback.
+  - `ChatLLM` protocol + `GeminiChatProvider` (`llm/protocol.py`,
+    `llm/gemini.py`).
+  - Chat grounded in the selector's `MoveBreakdown` via
+    `persona/narration.py` (`GameMoment` + `[GAME UPDATE]` digest), including
+    the safer move the bot *passed up* — so the banter is true, not generic.
+  - Event-gated reactions + player replies on one shared history
+    (`persona/chat.py`); wired into `./play --chat` / `--chat-model` with
+    `say <message>`.
+- **Phase B — Portrait.** Generate + cache an image from the persona's
+  `image_prompt` (Gemini/Imagen default; OSS Flux/SD for the no-key path).
+- **Phase C — Voice.** Provider-abstracted TTS (OSS default — Kokoro/Chatterbox
+  — with ElevenLabs opt-in for text voice design) + STT (Whisper).
+- **Phase D — Web app.** chessground UI with portrait, chat, push-to-talk over
+  a websocket session backend (this is M7).
+- **Phase E — Polish.** Expression variants keyed to game mood, optional
+  realtime speech, character gallery / prompt database.
 
 ### Milestone 8: Optional Lichess Bot
 
@@ -1145,6 +1183,10 @@ M1 + M2 status:
 - [x] Retire `SafeChessContext`.            *(M4 — removed; `context.py` deleted, both paths on ReadOnlyBoard)*
 - [x] Add UCI wrapper.                      *(M5 — `uci.py`; options-based config, eager scorer gen, movetime honoring)*
 - [~] Test with Cute Chess.                 *(M5 — protocol verified e2e against real Stockfish; GUI smoke-test pending on user's machine)*
+- [x] Add persona layer + game-grounded text chat. *(M9 Phase A — `persona/`; `./play --chat`)*
+- [ ] Add persona portrait generation.       *(M9 Phase B)*
+- [ ] Add persona voice (TTS + STT).         *(M9 Phase C)*
+- [ ] Build character web app.               *(M9 Phase D / M7)*
 - [ ] Iterate on scoring quality.           *(ongoing)*
 
 ---
@@ -1161,6 +1203,9 @@ ChessMind AI
   + action/state/trajectory scoring
   + Elo-based move quality budget
   + UCI-compatible wrapper
+  + LLM-generated persona (chat now; voice + portrait next)
 ```
 
-This avoids training a chess engine from scratch while still allowing very expressive prompt-driven behavior.
+This avoids training a chess engine from scratch while still allowing very
+expressive prompt-driven behavior — and, with the persona layer, a genuine
+*character* on the other side of the board, not just a playing style.

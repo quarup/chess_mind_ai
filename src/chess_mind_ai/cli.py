@@ -38,6 +38,13 @@ def _build_parser() -> argparse.ArgumentParser:
                       help="Print the LLM-generated scorer source before the game starts.")
     play.add_argument("--explain", action="store_true",
                       help="Print per-candidate score breakdown each AI move.")
+    play.add_argument("--chat", action="store_true",
+                      help="Give the AI a generated personality that reacts to the game "
+                           "and talks to you. Type 'say <message>' on your turn to chat. "
+                           "Requires --prompt and GEMINI_API_KEY.")
+    play.add_argument("--chat-model", type=str, default=None,
+                      help="Override the Gemini model used for persona chat "
+                           "(default: gemini-2.5-flash-lite).")
     play.add_argument("--stockfish", default="stockfish",
                       help="Path to the Stockfish binary (default: stockfish on PATH).")
     play.add_argument("--multipv", type=int, default=None,
@@ -70,6 +77,7 @@ def _play(args: argparse.Namespace) -> int:
     ai_color = not human_color
 
     scorer, source, style_label = _build_scorer(args)
+    chat_session = _build_persona_chat(args, ai_color)
 
     multipv = args.multipv if args.multipv is not None else candidate_count(args.elo)
     engine = ChessEngine(
@@ -81,13 +89,18 @@ def _play(args: argparse.Namespace) -> int:
 
     print(f"You are {'white' if human_color == chess.WHITE else 'black'}. "
           f"AI target Elo: {args.elo}. Style: {style_label}.")
-    print("Type SAN moves (e.g. 'e4', 'Nf3', 'O-O') or 'quit' to exit.\n")
+    if chat_session is not None:
+        print(f"\n{chat_session.persona.display_name()}: {chat_session.greeting()}\n")
+        print("Type SAN moves (e.g. 'e4', 'Nf3', 'O-O'), 'say <message>' to chat, "
+              "or 'quit' to exit.\n")
+    else:
+        print("Type SAN moves (e.g. 'e4', 'Nf3', 'O-O') or 'quit' to exit.\n")
 
     try:
         while not board.is_game_over():
             _print_board(board)
             if board.turn == human_color:
-                move = _read_human_move(board)
+                move = _read_human_move(board, chat_session)
                 if move is None:
                     print("Goodbye.")
                     return 0
@@ -106,6 +119,8 @@ def _play(args: argparse.Namespace) -> int:
                 if args.explain:
                     _print_breakdown(board, breakdown, chosen=move)
                 print(f"AI plays: {board.san(move)}\n")
+                if chat_session is not None:
+                    _emit_reaction(chat_session, board, move, breakdown)
 
             board.push(move)
 
@@ -170,13 +185,62 @@ def _build_scorer(
     return neutral, None, "neutral fallback (generation failed validation)"
 
 
+def _build_persona_chat(args: argparse.Namespace, ai_color: chess.Color):
+    """Generate a persona from the same --prompt and open a chat session, or
+    return None if --chat is off or setup fails (never aborts the game)."""
+    if not getattr(args, "chat", False):
+        return None
+    if not args.prompt:
+        print("--chat needs --prompt (the personality is generated from it); "
+              "continuing without chat.", file=sys.stderr)
+        return None
+
+    from chess_mind_ai.llm.gemini import (
+        DEFAULT_CHAT_MODEL,
+        GeminiChatProvider,
+        GeminiProvider,
+    )
+    from chess_mind_ai.persona.chat import PersonaChat
+    from chess_mind_ai.persona.prompt import PERSONA_SYSTEM_PROMPT
+    from chess_mind_ai.persona.spec import Persona
+
+    try:
+        model = args.chat_model or DEFAULT_CHAT_MODEL
+        print(f"Generating a personality for: {args.prompt!r}", file=sys.stderr)
+        sheet = GeminiProvider(model=model).generate(
+            system=PERSONA_SYSTEM_PROMPT, user=args.prompt
+        )
+        persona = Persona.from_json(sheet, source_prompt=args.prompt)
+        chat_llm = GeminiChatProvider(model=model)
+        return PersonaChat(persona, chat_llm, ai_color)
+    except Exception as e:  # noqa: BLE001 - chat is optional; degrade gracefully
+        print(f"Could not start persona chat ({e}); continuing without it.",
+              file=sys.stderr)
+        return None
+
+
+def _emit_reaction(chat_session, board: chess.Board, move: chess.Move,
+                   breakdown: list[MoveBreakdown]) -> None:
+    """Print the persona's in-character reaction to its own move, if any.
+
+    `board` is the position BEFORE `move` is pushed (what the narration needs).
+    """
+    try:
+        quip = chat_session.react_to_move(board, move, breakdown)
+    except Exception as e:  # noqa: BLE001 - banter must never break the game
+        print(f"  (chat unavailable: {e})", file=sys.stderr)
+        return
+    if quip:
+        print(f"{chat_session.persona.name}: {quip}\n")
+
+
 def _print_board(board: chess.Board) -> None:
     print()
     print(board.unicode(borders=True, empty_square=" "))
     print()
 
 
-def _read_human_move(board: chess.Board) -> chess.Move | None:
+def _read_human_move(board: chess.Board, chat_session=None) -> chess.Move | None:
     while True:
         try:
             text = input("Your move: ").strip()
@@ -187,6 +251,15 @@ def _read_human_move(board: chess.Board) -> chess.Move | None:
             continue
         if text.lower() in {"quit", "exit", "q"}:
             return None
+        if chat_session is not None and text.lower().startswith("say "):
+            message = text[4:].strip()
+            if message:
+                try:
+                    reply = chat_session.reply_to_player(message)
+                    print(f"{chat_session.persona.name}: {reply}\n")
+                except Exception as e:  # noqa: BLE001 - chat must not block play
+                    print(f"  (chat unavailable: {e})")
+            continue
         try:
             return board.parse_san(text)
         except (ValueError, chess.IllegalMoveError, chess.InvalidMoveError,
