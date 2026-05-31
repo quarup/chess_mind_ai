@@ -903,7 +903,7 @@ milestone:
 - Build the read-only board facade for richer scorers **[done — `readonly_board.py`, now wired into prompt + worker]**
 - Move generated code execution into a separate process (batch-per-move) **[done — `sandbox/worker.py`]**
 - Add wall-clock timeout **[done]**
-- Add memory/CPU limits (`resource.setrlimit`) **[done]**; network/mount isolation via `unshare` on Linux **[done]**; seccomp + macOS Seatbelt **[todo]**
+- Add memory/CPU limits (`resource.setrlimit`) **[done]**; network/mount isolation via `unshare` on Linux **[done]**; seccomp-bpf syscall allowlist on Linux **[done — `sandbox/seccomp.py`, via ctypes/libseccomp]**; macOS Seatbelt **[todo]**
 - Add output clamping **[done in M3]**
 - Add neutral fallback scorer (pure engine play on any failure) **[done]**
 - Add sample-position validation **[done — `sandbox/validation.py`; CLI regenerates 3× then neutral fallback]**
@@ -1177,7 +1177,8 @@ M1 + M2 status:
 - [x] Build read-only board facade.         *(M4 — `readonly_board.py`; wired into prompt + worker)*
 - [x] Add fallback scorer.                  *(M4 — neutral pure-engine fallback in `select_move_sandboxed`)*
 - [x] Add subprocess worker + timeout + rlimits. *(M4 — `sandbox/worker.py`; Linux unshare backend)*
-- [ ] Add seccomp + macOS Seatbelt backends. *(M4 — escape hardening; seccomp binding TODO)*
+- [x] Add seccomp syscall allowlist.        *(M4 — `sandbox/seccomp.py`; ctypes/libseccomp, no binding/compiler needed)*
+- [ ] Add macOS Seatbelt backend.           *(M4 — escape hardening; macOS-only, develop on a Mac)*
 - [x] Add sample-position validation.       *(M4 — `sandbox/validation.py`)*
 - [x] Wire ReadOnlyBoard into prompt + worker. *(M4 migration — both sandboxed and in-process paths use ReadOnlyBoard)*
 - [x] Retire `SafeChessContext`.            *(M4 — removed; `context.py` deleted, both paths on ReadOnlyBoard)*

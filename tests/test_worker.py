@@ -207,6 +207,28 @@ def test_isolation_none_still_scores():
     assert triples == [(1.0, 2.0, 3.0)]
 
 
+def test_seccomp_enabled_does_not_break_scoring():
+    # The default path installs the seccomp syscall allowlist inside the worker
+    # (where libseccomp is available); scoring must still produce correct triples
+    # through it. Orthogonal to the `unshare` namespace wrapper.
+    board = chess.Board()
+    moves = list(board.legal_moves)[:5]
+    triples = score_candidates_sandboxed(
+        _QUEEN_BONUS, board, chess.WHITE, moves, seccomp="auto",
+    )
+    assert triples is not None
+    assert len(triples) == 5
+
+
+def test_seccomp_disabled_still_scores():
+    # With seccomp explicitly off, the worker still scores (reduced isolation).
+    triples = score_candidates_sandboxed(
+        _CONST, chess.Board(), chess.WHITE,
+        [chess.Move.from_uci("e2e4")], seccomp="none",
+    )
+    assert triples == [(1.0, 2.0, 3.0)]
+
+
 # --- sandboxed selector integration (no Stockfish needed) ------------------ #
 
 _TWIN_CAPTURE_FEN = "4k3/8/8/8/3pP3/2B5/8/3QK3 w - - 0 1"

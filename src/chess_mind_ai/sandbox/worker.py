@@ -11,8 +11,11 @@ so that, on top of the AST allowlist + restricted builtins, we get:
 - a **scrubbed environment** (no API keys/secrets) and a temp working dir;
 - an optional **OS-isolation backend** selected at runtime: on Linux we wrap the
   worker in unprivileged `unshare` namespaces to drop network and isolate the
-  mount/user view. If no backend is available we degrade to "reduced isolation"
-  (resource limits + AST layer only) rather than failing.
+  mount/user view, and the worker installs a **seccomp syscall allowlist** on
+  itself (via `ctypes`/libseccomp — see `seccomp.py`) just before running
+  untrusted code. The two compose: `unshare` removes the *resources*, seccomp
+  removes the *operations*. If a backend is unavailable we degrade to "reduced
+  isolation" (resource limits + AST layer only) rather than failing.
 
 The portable core (process + setrlimit + wall-clock timeout) runs identically on
 macOS and Linux. The macOS Seatbelt backend is a planned follow-up.
@@ -83,11 +86,22 @@ def _score_request(req: dict) -> dict:
     from chess_mind_ai.readonly_board import ReadOnlyBoard
     from chess_mind_ai.sandbox.loader import load_scorer
 
+    # All imports / file IO must happen *before* the seccomp lockdown below,
+    # which denies openat (so no module can be imported afterwards). The
+    # validator guarantees the source's only top-level statements are the three
+    # function defs, so load_scorer just binds functions — no untrusted code
+    # runs until we call them in the loop, which is under the seccomp filter.
     scorer = load_scorer(req["source"])
 
     board = chess.Board(req["root_fen"])
     for uci in req["history"]:
         board.push(chess.Move.from_uci(uci))
+
+    # Lock down syscalls before running any untrusted scorer code. Orthogonal to
+    # the `unshare` namespace wrapper applied by the parent (see seccomp.py).
+    if req.get("seccomp", "auto") != "none":
+        from chess_mind_ai.sandbox.seccomp import apply_seccomp_filter
+        apply_seccomp_filter()
 
     own_color = bool(req["own_color"])
     triples: list[list[float]] = []
@@ -197,6 +211,7 @@ def score_candidates_sandboxed(
     mem_mb: int = DEFAULT_MEM_MB,
     cpu_s: int = DEFAULT_CPU_S,
     isolation: str = "auto",
+    seccomp: str = "auto",
 ) -> list[ScoreTriple] | None:
     """Score `candidate_moves` with the generated `source` in an isolated worker.
 
@@ -224,6 +239,7 @@ def score_candidates_sandboxed(
         "candidates": [m.uci() for m in candidate_moves],
         "mem_mb": mem_mb,
         "cpu_s": cpu_s,
+        "seccomp": seccomp,
     })
 
     cmd = _isolation_prefix(isolation) + [sys.executable, "-m", __name__]

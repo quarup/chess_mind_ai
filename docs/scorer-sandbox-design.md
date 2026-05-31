@@ -171,12 +171,19 @@ history (UCI) + own_color**; the worker rebuilds a `chess.Board`, wraps it in
 - [x] **Wall-clock timeout** killing the worker's process group. Separate from
       the CPU rlimit below — `RLIMIT_CPU` does not fire on a blocking/sleeping
       loop, so the parent enforces a real wall-clock kill.
-- [~] **Escape prevention (the primary defense):** on Linux the worker is
+- [x] **Escape prevention (the primary defense):** on Linux the worker is
       wrapped in unprivileged `unshare --user --map-root-user --net --mount`
-      namespaces (drops network, isolates mount/user view). **seccomp-bpf is
-      still TODO** — no Python binding is installed in the target environments
-      yet; it's the highest-value remaining hardening. The macOS Seatbelt
-      backend is also TODO (currently macOS runs in "reduced isolation").
+      namespaces (drops network, isolates mount/user view) **and** installs a
+      **seccomp-bpf syscall allowlist** on itself just before running untrusted
+      code (`sandbox/seccomp.py`). The two compose (§12.4): `unshare` removes the
+      *resources*, seccomp removes the *operations*. seccomp is driven through
+      the system **libseccomp** via `ctypes` — **no Python binding, no compiler,
+      and no network needed** (this corrects the earlier assumption that it
+      required them; `libseccomp.so.2` ships with the base system). Default
+      action is `ERRNO(EPERM)` so an unlisted-but-benign syscall degrades to a
+      clean Python error → neutral fallback rather than a hard kill. The macOS
+      Seatbelt backend is still TODO (macOS currently runs in "reduced
+      isolation" = portable core + AST layer); it must be developed on a Mac.
 - [x] **Resource limits:** `resource.setrlimit` for `RLIMIT_AS` (memory),
       `RLIMIT_CPU`, and `RLIMIT_FSIZE=0` (no file writes), applied in the worker
       before untrusted code runs. These bound *resource exhaustion*; they do
@@ -312,7 +319,11 @@ target.
 - `unshare` is present; **`bwrap` / `firejail` / `nsjail` / `wasmtime` are NOT
   installed**, and we don't assume the ability to install system packages.
 - `resource.setrlimit(RLIMIT_AS, RLIMIT_CPU)` is available (also on macOS).
-- No `seccomp` Python binding (adding one needs a compiler + network).
+- **seccomp is usable**: no `seccomp`/`pyseccomp` *Python* binding is installed,
+  but `libseccomp.so.2` ships with the base system and we drive it via `ctypes`
+  (and an allow-all BPF filter installs directly via `prctl` too). So seccomp
+  needs **no** extra package, compiler, or network — superseding the earlier
+  "needs a compiler + network" note. See `sandbox/seccomp.py`.
 
 ### 11.3 Sandbox-mechanism availability by platform
 
@@ -323,14 +334,15 @@ Background on each mechanism is in §10; this is just *what runs where*.
 | separate process + `setrlimit` | ✅ | ✅ | portable, no root |
 | wall-clock watchdog kill | ✅ | ✅ | needed *separately* from `RLIMIT_CPU` |
 | user/net/mount/pid namespaces (`unshare`) | ❌ | ✅ unprivileged | Linux-only |
-| seccomp-bpf syscall allowlist | ❌ | ⚠️ no binding installed | Linux-only |
+| seccomp-bpf syscall allowlist | ❌ | ✅ via ctypes/libseccomp | Linux-only; no binding/compiler needed |
 | Seatbelt (`sandbox-exec`) | ✅ (deprecated API) | ❌ | macOS-only |
 | bubblewrap / nsjail / firejail | ❌ | ❌ not installed | — |
 | WASM (Wasmtime / Pyodide) | needs install | not installed | only *uniform* option |
 
 **Takeaway:** no single strong-isolation mechanism is available on both
-platforms out of the box. seccomp is Linux-only; Seatbelt is macOS-only; WASM is
-uniform but not installed and heavy to integrate (and fights option C — 11.6).
+platforms out of the box. seccomp is Linux-only (now wired up via
+ctypes/libseccomp); Seatbelt is macOS-only; WASM is uniform but not installed
+and heavy to integrate (and fights option C — 11.6).
 For how these mechanisms relate conceptually (visibility vs syscall surface),
 see §12.4.
 
@@ -355,10 +367,12 @@ defense-in-depth for the case where that layer is bypassed.
 **Pluggable OS backend, selected at runtime:**
 
 - **Linux** (cloud container + production): launch the worker under `unshare
-  --user --map-root-user --net --mount --pid` to drop network and isolate
-  FS/PID. Confirmed runnable in the cloud container.
+  --user --map-root-user --net --mount` to drop network and isolate FS/PID, and
+  the worker installs a **seccomp-bpf syscall allowlist** on itself (via
+  `ctypes`/libseccomp — `sandbox/seccomp.py`) just before running untrusted code.
+  Both confirmed runnable in the cloud container.
 - **macOS**: a Seatbelt profile via `sandbox-exec` denying filesystem + network
-  (deprecated API, still functional).
+  (deprecated API, still functional). **Still TODO** — develop on a Mac.
 - **Fallback**: if no backend is available, run the portable core + AST layer
   and log **"reduced isolation"** — degrade, never crash.
 
@@ -420,6 +434,7 @@ model grows: add a seccomp binding, or move to gVisor, Firecracker, or WASM.
 │  [optional prefix: `unshare …` (Linux) / Seatbelt (mac)]  │
 │  _apply_resource_limits()  → setrlimit AS / CPU / FSIZE   │
 │  load_scorer(source) → AST allowlist + restricted builtins│
+│  apply_seccomp_filter() → syscall allowlist (Linux)       │
 │  rebuild board from FEN+history → ReadOnlyBoard           │
 │  run generated action/state/trajectory(ctx, move)  ◄─ the │
 │  return triples                         ONLY untrusted    │
@@ -457,8 +472,8 @@ evaluation, move legality, and the final selection are all trusted.
 3. Separate process (memory/state isolation from the parent).
 4. `setrlimit` — `RLIMIT_AS` / `RLIMIT_CPU` / `RLIMIT_FSIZE=0` (worker).
 5. Wall-clock timeout + process-group kill (parent).
-6. OS-isolation backend wrapping the worker: `unshare` namespaces (Linux, now);
-   seccomp + macOS Seatbelt (TODO).
+6. OS-isolation backend wrapping the worker: `unshare` namespaces + seccomp
+   syscall allowlist (Linux, now); macOS Seatbelt (TODO).
 
 ### 12.4 How the OS backends relate: unshare vs seccomp vs Seatbelt
 
@@ -480,8 +495,9 @@ These act on **different axes** and *compose*; they are not interchangeable:
   once**, because macOS has neither namespaces nor seccomp. One SBPL profile
   (via `sandbox-exec` / `sandbox_init`) denies file/network/exec operations.
 
-So the OS layer is: **Linux = `unshare` + seccomp stacked** (we have `unshare`;
-seccomp is TODO); **macOS = a single Seatbelt profile** (TODO). The portable
+So the OS layer is: **Linux = `unshare` + seccomp stacked** (both now wired up —
+`unshare` namespaces + a libseccomp/ctypes syscall allowlist in `seccomp.py`);
+**macOS = a single Seatbelt profile** (TODO, develop on a Mac). The portable
 core (separate process + `setrlimit` + wall-clock timeout) underlies all of
 them, and if no backend is available the worker still runs under the portable
 core + AST layer ("reduced isolation").
